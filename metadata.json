@@ -1,0 +1,6 @@
+{
+  "name": "3D Jumping Pegs Puzzle",
+  "description": "A 3D mathematical point-reflection grid puzzle game based on MoMath and 3Blue1Brown mechanics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

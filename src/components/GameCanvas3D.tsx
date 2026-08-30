@@ -1,0 +1,1011 @@
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { PegData, Point2D, ValidMove } from '../types';
+import { sound } from '../audio/soundEffects';
+
+interface GameCanvas3DProps {
+  pegs: PegData[];
+  target: Point2D;
+  selectedPegId: string | null;
+  validMoves: ValidMove[];
+  isAnimating: boolean;
+  isMenuMode?: boolean;
+  cameraResetTrigger: number;
+  levelCameraPos?: { x: number; y: number; z: number };
+  onSelectPeg: (pegId: string | null) => void;
+  onExecuteMove: (move: ValidMove) => void;
+}
+
+interface PegMeshWrapper {
+  id: string;
+  group: THREE.Group;
+  baseY: number;
+  currentY: number;
+  targetY: number;
+  targetScaleY: number;
+  currentScaleY: number;
+  meshMaterials: THREE.MeshStandardMaterial[];
+  selectionRing: THREE.Mesh;
+  glowAura: THREE.Mesh;
+}
+
+export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
+  pegs,
+  target,
+  selectedPegId,
+  validMoves,
+  isAnimating,
+  isMenuMode = false,
+  cameraResetTrigger,
+  levelCameraPos,
+  onSelectPeg,
+  onExecuteMove,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+
+  // References for dynamic 3D elements
+  const pegsGroupRef = useRef<THREE.Group | null>(null);
+  const pegWrappersRef = useRef<Map<string, PegMeshWrapper>>(new Map());
+  const targetGroupRef = useRef<THREE.Group | null>(null);
+  const targetLightRef = useRef<THREE.PointLight | null>(null);
+  const targetRingsRef = useRef<THREE.Mesh[]>([]);
+  const targetBeamRef = useRef<THREE.Mesh | null>(null);
+  const guideLinesGroupRef = useRef<THREE.Group | null>(null);
+  const landingHolesGroupRef = useRef<THREE.Group | null>(null);
+  const landingRingsRef = useRef<{ mesh: THREE.Mesh; move: ValidMove }[]>([]);
+
+  // Ghost Peg Preview Mesh
+  const ghostPegGroupRef = useRef<THREE.Group | null>(null);
+
+  // Hover state
+  const hoveredPegIdRef = useRef<string | null>(null);
+  const hoveredMoveDestRef = useRef<Point2D | null>(null);
+
+  // Animation active state
+  const activeAnimationRef = useRef<{
+    pegId: string;
+    startPos: THREE.Vector3;
+    controlPos: THREE.Vector3;
+    endPos: THREE.Vector3;
+    startTime: number;
+    duration: number;
+    move: ValidMove;
+    onComplete: () => void;
+  } | null>(null);
+
+  // Raycaster & Mouse
+  const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
+  const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2(-999, -999));
+  const pointerDownPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // 1. Initialize Three.js Scene
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    const width = container.clientWidth || window.innerWidth;
+    const height = container.clientHeight || window.innerHeight;
+
+    // Scene
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x0a0c10);
+    scene.fog = new THREE.FogExp2(0x0a0c10, 0.022);
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+    const initialCam = levelCameraPos || { x: 2, y: 11, z: 9 };
+    camera.position.set(initialCam.x, initialCam.y, initialCam.z);
+    cameraRef.current = camera;
+
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+    });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    rendererRef.current = renderer;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+
+    // Orbit Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI / 2.05; // Prevent going underneath floor
+    controls.minDistance = 3.5;
+    controls.maxDistance = 32;
+    controls.target.set(target.x, 0, target.y);
+    controlsRef.current = controls;
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x1e293b, 1.1);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dirLight.position.set(12, 24, 16);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 50;
+    const shadowDist = 16;
+    dirLight.shadow.camera.left = -shadowDist;
+    dirLight.shadow.camera.right = shadowDist;
+    dirLight.shadow.camera.top = shadowDist;
+    dirLight.shadow.camera.bottom = -shadowDist;
+    dirLight.shadow.bias = -0.0003;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.4);
+    fillLight.position.set(-14, 12, -10);
+    scene.add(fillLight);
+
+    // Lattice Floor & Dimples
+    buildLatticeGrid(scene);
+
+    // Groups for dynamic elements
+    const pegsGroup = new THREE.Group();
+    pegsGroupRef.current = pegsGroup;
+    scene.add(pegsGroup);
+
+    const targetGroup = new THREE.Group();
+    targetGroupRef.current = targetGroup;
+    scene.add(targetGroup);
+    buildTargetMarker(targetGroup, scene);
+
+    const guideLinesGroup = new THREE.Group();
+    guideLinesGroupRef.current = guideLinesGroup;
+    scene.add(guideLinesGroup);
+
+    const landingHolesGroup = new THREE.Group();
+    landingHolesGroupRef.current = landingHolesGroup;
+    scene.add(landingHolesGroup);
+
+    // Ghost Peg Group for Preview
+    const ghostGroup = buildGhostPegModel();
+    ghostGroup.visible = false;
+    ghostPegGroupRef.current = ghostGroup;
+    scene.add(ghostGroup);
+
+    // Animation Loop
+    let animationFrameId: number;
+    let clock = new THREE.Clock();
+
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
+      const elapsedTime = clock.getElapsedTime();
+
+      // In Menu Mode: Slow cinematic orbital rotation
+      if (controlsRef.current) {
+        if (controlsRef.current.autoRotate) {
+          controlsRef.current.update();
+        } else {
+          controlsRef.current.update();
+        }
+      }
+
+      // Animate Target Marker (Pulsing rings & laser beam)
+      if (targetGroupRef.current) {
+        targetRingsRef.current.forEach((ring, idx) => {
+          const speed = 2.0 + idx * 0.5;
+          const scale = 1.0 + Math.sin(elapsedTime * speed + idx * 1.5) * 0.15;
+          ring.scale.set(scale, scale, 1);
+          ring.rotation.z += 0.008 * (idx % 2 === 0 ? 1 : -1);
+        });
+
+        if (targetBeamRef.current) {
+          const beamMat = targetBeamRef.current.material as THREE.MeshBasicMaterial;
+          beamMat.opacity = 0.4 + Math.sin(elapsedTime * 3) * 0.18;
+        }
+
+        if (targetLightRef.current) {
+          targetLightRef.current.intensity = 2.2 + Math.sin(elapsedTime * 4) * 0.6;
+        }
+      }
+
+      // Animate Landing Hole Rings
+      landingRingsRef.current.forEach((item, idx) => {
+        const isHovered =
+          hoveredMoveDestRef.current &&
+          hoveredMoveDestRef.current.x === item.move.dest.x &&
+          hoveredMoveDestRef.current.y === item.move.dest.y;
+
+        const pulseScale = isHovered
+          ? 1.35 + Math.sin(elapsedTime * 8) * 0.18
+          : 1.0 + Math.sin(elapsedTime * 4 + idx) * 0.12;
+
+        item.mesh.scale.set(pulseScale, pulseScale, 1);
+        item.mesh.rotation.z += isHovered ? 0.04 : 0.015;
+      });
+
+      // Animate Ghost Peg floating hover bobbing
+      if (ghostPegGroupRef.current && ghostPegGroupRef.current.visible) {
+        const bob = Math.sin(elapsedTime * 6) * 0.06;
+        ghostPegGroupRef.current.position.y = 0.05 + bob;
+      }
+
+      // Animate Active Jump Trajectory
+      if (activeAnimationRef.current) {
+        const anim = activeAnimationRef.current;
+        const now = performance.now();
+        const progress = Math.min(1.0, (now - anim.startTime) / anim.duration);
+
+        // Parabolic Bezier Curve: B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+        const t = progress;
+        const oneMinusT = 1 - t;
+        const currentX =
+          oneMinusT * oneMinusT * anim.startPos.x +
+          2 * oneMinusT * t * anim.controlPos.x +
+          t * t * anim.endPos.x;
+        const currentY =
+          oneMinusT * oneMinusT * anim.startPos.y +
+          2 * oneMinusT * t * anim.controlPos.y +
+          t * t * anim.endPos.y;
+        const currentZ =
+          oneMinusT * oneMinusT * anim.startPos.z +
+          2 * oneMinusT * t * anim.controlPos.z +
+          t * t * anim.endPos.z;
+
+        const pegWrapper = pegWrappersRef.current.get(anim.pegId);
+        if (pegWrapper) {
+          pegWrapper.group.position.set(currentX, currentY, currentZ);
+
+          // Flight stretch / tilt
+          if (progress < 0.9) {
+            pegWrapper.group.scale.set(0.95, 1.12, 0.95);
+          } else {
+            // Landing squash
+            const landingT = (progress - 0.9) / 0.1;
+            const squash = 1.0 - (1.0 - landingT) * 0.22;
+            pegWrapper.group.scale.set(1.12, squash, 1.12);
+          }
+        }
+
+        if (progress >= 1.0) {
+          if (pegWrapper) {
+            pegWrapper.group.position.set(anim.endPos.x, 0, anim.endPos.z);
+            pegWrapper.group.scale.set(1, 1, 1);
+            pegWrapper.currentY = 0;
+            pegWrapper.targetY = 0;
+          }
+          activeAnimationRef.current = null;
+          anim.onComplete();
+        }
+      }
+
+      // Smooth Peg Hover Lift & Scale Interpolation
+      pegWrappersRef.current.forEach((wrapper) => {
+        if (!activeAnimationRef.current || activeAnimationRef.current.pegId !== wrapper.id) {
+          // Smooth Y position lift
+          wrapper.currentY += (wrapper.targetY - wrapper.currentY) * 0.22;
+          wrapper.group.position.y = wrapper.currentY;
+
+          // Smooth scale recovery
+          wrapper.currentScaleY += (wrapper.targetScaleY - wrapper.currentScaleY) * 0.22;
+          wrapper.group.scale.set(1, wrapper.currentScaleY, 1);
+        }
+      });
+
+      renderer.render(scene, camera);
+    };
+
+    animate();
+
+    // Resize Handler
+    const handleResize = () => {
+      if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
+      const w = containerRef.current.clientWidth;
+      const h = containerRef.current.clientHeight;
+      cameraRef.current.aspect = w / h;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(w, h);
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      renderer.dispose();
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
+    };
+  }, []);
+
+  // 2. Control Menu Mode Auto-Orbit
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    if (isMenuMode) {
+      controlsRef.current.autoRotate = true;
+      controlsRef.current.autoRotateSpeed = 1.0;
+    } else {
+      controlsRef.current.autoRotate = false;
+    }
+  }, [isMenuMode]);
+
+  // 3. Build Floor Grid & Hole Dimples
+  const buildLatticeGrid = (scene: THREE.Scene) => {
+    // Ground Plane
+    const planeGeo = new THREE.PlaneGeometry(60, 60);
+    const planeMat = new THREE.MeshStandardMaterial({
+      color: 0x0c0f17,
+      roughness: 0.85,
+      metalness: 0.15,
+    });
+    const floor = new THREE.Mesh(planeGeo, planeMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.01;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Subtle coordinate lines
+    const gridHelper = new THREE.GridHelper(32, 32, 0x1e293b, 0x111827);
+    gridHelper.position.y = 0.001;
+    scene.add(gridHelper);
+
+    // Coordinate dimple holes (grid of subtle circular insets)
+    const holeRadius = 0.18;
+    const holeGeo = new THREE.RingGeometry(holeRadius * 0.5, holeRadius, 24);
+    const holeMat = new THREE.MeshBasicMaterial({
+      color: 0x1f293d,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.5,
+    });
+
+    const innerHoleGeo = new THREE.CircleGeometry(holeRadius * 0.5, 24);
+    const innerHoleMat = new THREE.MeshBasicMaterial({
+      color: 0x05070a,
+      side: THREE.DoubleSide,
+    });
+
+    const dimpleGroup = new THREE.Group();
+    const bound = 9;
+    for (let x = -bound; x <= bound; x++) {
+      for (let z = -bound; z <= bound; z++) {
+        const ring = new THREE.Mesh(holeGeo, holeMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(x, 0.002, z);
+        dimpleGroup.add(ring);
+
+        const inner = new THREE.Mesh(innerHoleGeo, innerHoleMat);
+        inner.rotation.x = -Math.PI / 2;
+        inner.position.set(x, 0.0025, z);
+        dimpleGroup.add(inner);
+      }
+    }
+    scene.add(dimpleGroup);
+  };
+
+  // 4. Build Target Marker Visuals
+  const buildTargetMarker = (targetGroup: THREE.Group, scene: THREE.Scene) => {
+    // Neon Ring 1 (Inner glow)
+    const ringGeo1 = new THREE.RingGeometry(0.24, 0.38, 32);
+    const ringMat1 = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const ring1 = new THREE.Mesh(ringGeo1, ringMat1);
+    ring1.rotation.x = -Math.PI / 2;
+    ring1.position.y = 0.006;
+    targetGroup.add(ring1);
+
+    // Neon Ring 2 (Outer dashed/halo)
+    const ringGeo2 = new THREE.RingGeometry(0.42, 0.54, 32);
+    const ringMat2 = new THREE.MeshBasicMaterial({
+      color: 0x06b6d4,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.5,
+    });
+    const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
+    ring2.rotation.x = -Math.PI / 2;
+    ring2.position.y = 0.007;
+    targetGroup.add(ring2);
+
+    targetRingsRef.current = [ring1, ring2];
+
+    // Energy Laser Beam
+    const beamGeo = new THREE.CylinderGeometry(0.06, 0.24, 4.5, 24, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.y = 2.25;
+    targetGroup.add(beam);
+    targetBeamRef.current = beam;
+
+    // Target Point Light
+    const pointLight = new THREE.PointLight(0x10b981, 2.4, 10, 2);
+    pointLight.position.set(0, 0.8, 0);
+    targetGroup.add(pointLight);
+    targetLightRef.current = pointLight;
+  };
+
+  // 5. Build Ghost Peg Model
+  const buildGhostPegModel = (): THREE.Group => {
+    const ghostGroup = new THREE.Group();
+    ghostGroup.name = 'ghost-peg-preview';
+
+    const ghostMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.45,
+      roughness: 0.3,
+      metalness: 0.2,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.3,
+    });
+
+    // Base foot
+    const baseGeo = new THREE.CylinderGeometry(0.24, 0.28, 0.12, 24);
+    const baseMesh = new THREE.Mesh(baseGeo, ghostMat);
+    baseMesh.position.y = 0.06;
+    ghostGroup.add(baseMesh);
+
+    // Waist
+    const waistGeo = new THREE.CylinderGeometry(0.13, 0.24, 0.44, 24);
+    const waistMesh = new THREE.Mesh(waistGeo, ghostMat);
+    waistMesh.position.y = 0.32;
+    ghostGroup.add(waistMesh);
+
+    // Collar
+    const collarGeo = new THREE.TorusGeometry(0.16, 0.035, 12, 24);
+    const collarMesh = new THREE.Mesh(collarGeo, ghostMat);
+    collarMesh.rotation.x = Math.PI / 2;
+    collarMesh.position.y = 0.52;
+    ghostGroup.add(collarMesh);
+
+    // Bulb Head Sphere
+    const headGeo = new THREE.SphereGeometry(0.24, 24, 20);
+    const headMesh = new THREE.Mesh(headGeo, ghostMat);
+    headMesh.position.y = 0.72;
+    ghostGroup.add(headMesh);
+
+    return ghostGroup;
+  };
+
+  // 6. Update Target Position
+  useEffect(() => {
+    if (targetGroupRef.current) {
+      targetGroupRef.current.position.set(target.x, 0, target.y);
+    }
+  }, [target]);
+
+  // 7. Build and Update Peg 3D Meshes
+  useEffect(() => {
+    if (!pegsGroupRef.current) return;
+    const group = pegsGroupRef.current;
+
+    // Existing IDs
+    const currentIds = new Set(pegs.map((p) => p.id));
+
+    // Remove obsolete pegs
+    pegWrappersRef.current.forEach((wrapper, id) => {
+      if (!currentIds.has(id)) {
+        group.remove(wrapper.group);
+        pegWrappersRef.current.delete(id);
+      }
+    });
+
+    // Create or update pegs
+    pegs.forEach((pegData) => {
+      let wrapper = pegWrappersRef.current.get(pegData.id);
+
+      if (!wrapper) {
+        // Create new Peg Group
+        const pegGroup = new THREE.Group();
+        pegGroup.name = `peg-${pegData.id}`;
+
+        const mats: THREE.MeshStandardMaterial[] = [];
+
+        // Porcelain material
+        const porcelainMat = new THREE.MeshStandardMaterial({
+          color: 0xf8fafc,
+          roughness: 0.22,
+          metalness: 0.08,
+          emissive: 0x000000,
+        });
+        mats.push(porcelainMat);
+
+        // Base foot
+        const baseGeo = new THREE.CylinderGeometry(0.24, 0.28, 0.12, 32);
+        const baseMesh = new THREE.Mesh(baseGeo, porcelainMat);
+        baseMesh.position.y = 0.06;
+        baseMesh.castShadow = true;
+        baseMesh.receiveShadow = true;
+        pegGroup.add(baseMesh);
+
+        // Waist
+        const waistGeo = new THREE.CylinderGeometry(0.13, 0.24, 0.44, 32);
+        const waistMesh = new THREE.Mesh(waistGeo, porcelainMat);
+        waistMesh.position.y = 0.32;
+        waistMesh.castShadow = true;
+        waistMesh.receiveShadow = true;
+        pegGroup.add(waistMesh);
+
+        // Collar ring
+        const collarGeo = new THREE.TorusGeometry(0.16, 0.035, 16, 32);
+        const collarMesh = new THREE.Mesh(collarGeo, porcelainMat);
+        collarMesh.rotation.x = Math.PI / 2;
+        collarMesh.position.y = 0.52;
+        collarMesh.castShadow = true;
+        pegGroup.add(collarMesh);
+
+        // Bulb Head Sphere
+        const headGeo = new THREE.SphereGeometry(0.24, 32, 24);
+        const headMesh = new THREE.Mesh(headGeo, porcelainMat);
+        headMesh.position.y = 0.72;
+        headMesh.castShadow = true;
+        headMesh.receiveShadow = true;
+        pegGroup.add(headMesh);
+
+        // Golden Selection Ring
+        const ringGeo = new THREE.RingGeometry(0.32, 0.44, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xfbbf24,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0,
+        });
+        const selectionRing = new THREE.Mesh(ringGeo, ringMat);
+        selectionRing.rotation.x = -Math.PI / 2;
+        selectionRing.position.y = 0.005;
+        pegGroup.add(selectionRing);
+
+        // Glowing Aura disc underneath
+        const auraGeo = new THREE.CircleGeometry(0.55, 32);
+        const auraMat = new THREE.MeshBasicMaterial({
+          color: 0xf59e0b,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+        });
+        const glowAura = new THREE.Mesh(auraGeo, auraMat);
+        glowAura.rotation.x = -Math.PI / 2;
+        glowAura.position.y = 0.004;
+        pegGroup.add(glowAura);
+
+        // Invisible Raycast Hit Box
+        const hitGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 16);
+        const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+        const hitBox = new THREE.Mesh(hitGeo, hitMat);
+        hitBox.position.y = 0.5;
+        hitBox.name = `hitbox-${pegData.id}`;
+        pegGroup.add(hitBox);
+
+        pegGroup.position.set(pegData.x, 0, pegData.y);
+        group.add(pegGroup);
+
+        wrapper = {
+          id: pegData.id,
+          group: pegGroup,
+          baseY: 0,
+          currentY: 0,
+          targetY: 0,
+          targetScaleY: 1,
+          currentScaleY: 1,
+          meshMaterials: mats,
+          selectionRing,
+          glowAura,
+        };
+
+        pegWrappersRef.current.set(pegData.id, wrapper);
+      } else {
+        // Update position if not currently in animation
+        if (!activeAnimationRef.current || activeAnimationRef.current.pegId !== pegData.id) {
+          wrapper.group.position.set(pegData.x, wrapper.currentY, pegData.y);
+        }
+      }
+
+      // Update Selection Styling
+      const isSelected = selectedPegId === pegData.id;
+      const isHovered = hoveredPegIdRef.current === pegData.id;
+
+      wrapper.targetY = isSelected ? 0.35 : isHovered ? 0.2 : 0;
+
+      wrapper.meshMaterials.forEach((mat) => {
+        if (isSelected) {
+          mat.emissive.setHex(0xf59e0b);
+          mat.emissiveIntensity = 0.45;
+        } else if (isHovered) {
+          mat.emissive.setHex(0x38bdf8);
+          mat.emissiveIntensity = 0.25;
+        } else {
+          mat.emissive.setHex(0x000000);
+          mat.emissiveIntensity = 0;
+        }
+      });
+
+      const selMat = wrapper.selectionRing.material as THREE.MeshBasicMaterial;
+      selMat.opacity = isSelected ? 0.9 : 0;
+
+      const auraMat = wrapper.glowAura.material as THREE.MeshBasicMaterial;
+      auraMat.opacity = isSelected ? 0.35 : isHovered ? 0.15 : 0;
+    });
+  }, [pegs, selectedPegId]);
+
+  // 8. Build Aiming Trajectory Arcs & Landing Target Rings
+  useEffect(() => {
+    if (!guideLinesGroupRef.current || !landingHolesGroupRef.current) return;
+    const guideGroup = guideLinesGroupRef.current;
+    const landingGroup = landingHolesGroupRef.current;
+
+    // Clear old guides & landing rings
+    while (guideGroup.children.length > 0) {
+      const obj = guideGroup.children[0];
+      guideGroup.remove(obj);
+    }
+    while (landingGroup.children.length > 0) {
+      const obj = landingGroup.children[0];
+      landingGroup.remove(obj);
+    }
+    landingRingsRef.current = [];
+
+    // Hide ghost preview when no selection
+    if (ghostPegGroupRef.current) {
+      ghostPegGroupRef.current.visible = false;
+    }
+
+    if (!selectedPegId || validMoves.length === 0) return;
+
+    const selectedPeg = pegs.find((p) => p.id === selectedPegId);
+    if (!selectedPeg) return;
+
+    validMoves.forEach((move) => {
+      // 1. Ground Projection Dashed Line (Start -> Pivot -> Dest)
+      const groundPoints = [
+        new THREE.Vector3(move.from.x, 0.02, move.from.y),
+        new THREE.Vector3(move.pivot.x, 0.02, move.pivot.y),
+        new THREE.Vector3(move.dest.x, 0.02, move.dest.y),
+      ];
+      const groundGeo = new THREE.BufferGeometry().setFromPoints(groundPoints);
+      const groundMat = new THREE.LineDashedMaterial({
+        color: 0xf59e0b,
+        dashSize: 0.2,
+        gapSize: 0.15,
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.65,
+      });
+      const groundLine = new THREE.Line(groundGeo, groundMat);
+      groundLine.computeLineDistances();
+      guideGroup.add(groundLine);
+
+      // 2. Parabolic 3D Bezier Curve
+      const apexHeight = Math.min(3.8, Math.max(1.3, move.distance * 0.55));
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(move.from.x, 0.6, move.from.y),
+        new THREE.Vector3(move.pivot.x, 0.6 + apexHeight, move.pivot.y),
+        new THREE.Vector3(move.dest.x, 0.6, move.dest.y)
+      );
+
+      const curvePoints = curve.getPoints(36);
+      const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      const curveMat = new THREE.LineDashedMaterial({
+        color: 0xfbbf24,
+        dashSize: 0.25,
+        gapSize: 0.12,
+        linewidth: 3,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const arcLine = new THREE.Line(curveGeo, curveMat);
+      arcLine.computeLineDistances();
+      guideGroup.add(arcLine);
+
+      // 3. Pulsing Golden Landing Target Ring
+      const landingGroupItem = new THREE.Group();
+      landingGroupItem.position.set(move.dest.x, 0.015, move.dest.y);
+
+      // Inner ring
+      const ringGeo = new THREE.RingGeometry(0.22, 0.36, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xf59e0b,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.rotation.x = -Math.PI / 2;
+      landingGroupItem.add(ringMesh);
+
+      // Outer ripple
+      const outerRingGeo = new THREE.RingGeometry(0.42, 0.52, 32);
+      const outerRingMat = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.4,
+      });
+      const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
+      outerRingMesh.rotation.x = -Math.PI / 2;
+      landingGroupItem.add(outerRingMesh);
+
+      // Clickable Hit Disc for Landing Ring
+      const hitDiscGeo = new THREE.CircleGeometry(0.65, 24);
+      const hitDiscMat = new THREE.MeshBasicMaterial({ visible: false });
+      const hitDisc = new THREE.Mesh(hitDiscGeo, hitDiscMat);
+      hitDisc.rotation.x = -Math.PI / 2;
+      hitDisc.name = `landing-${move.dest.x}-${move.dest.y}`;
+      landingGroupItem.add(hitDisc);
+
+      landingGroup.add(landingGroupItem);
+
+      landingRingsRef.current.push({
+        mesh: ringMesh,
+        move,
+      });
+    });
+  }, [selectedPegId, validMoves, pegs]);
+
+  // 9. Handle Camera Reset / Transition
+  useEffect(() => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const targetCam = levelCameraPos || { x: 2, y: 11, z: 9 };
+    const cam = cameraRef.current;
+    const controls = controlsRef.current;
+
+    // Smooth transition
+    const startPos = cam.position.clone();
+    const endPos = new THREE.Vector3(targetCam.x, targetCam.y, targetCam.z);
+    const startTarget = controls.target.clone();
+    const endTarget = new THREE.Vector3(target.x, 0, target.y);
+
+    const startTime = performance.now();
+    const duration = 650;
+
+    const easeCamera = () => {
+      const now = performance.now();
+      const progress = Math.min(1.0, (now - startTime) / duration);
+      const ease = 1 - Math.pow(1 - progress, 3); // Cubic Ease Out
+
+      cam.position.lerpVectors(startPos, endPos, ease);
+      controls.target.lerpVectors(startTarget, endTarget, ease);
+      controls.update();
+
+      if (progress < 1.0) {
+        requestAnimationFrame(easeCamera);
+      }
+    };
+
+    easeCamera();
+  }, [cameraResetTrigger, levelCameraPos, target]);
+
+  // 10. Pointer Event Handlers (Click & Hover)
+  const handlePointerDown = (e: React.PointerEvent) => {
+    pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!containerRef.current || !cameraRef.current || isAnimating || isMenuMode) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+
+    // Check hit objects
+    const hitList: THREE.Object3D[] = [];
+    if (pegsGroupRef.current) hitList.push(...pegsGroupRef.current.children);
+    if (landingHolesGroupRef.current) hitList.push(...landingHolesGroupRef.current.children);
+
+    const intersects = raycasterRef.current.intersectObjects(hitList, true);
+
+    let foundPegId: string | null = null;
+    let foundDest: Point2D | null = null;
+
+    if (intersects.length > 0) {
+      for (const hit of intersects) {
+        let curr: THREE.Object3D | null = hit.object;
+        while (curr && curr.parent && curr.parent !== sceneRef.current) {
+          if (curr.name && curr.name.startsWith('peg-')) {
+            foundPegId = curr.name.replace('peg-', '');
+            break;
+          }
+          if (curr.name && curr.name.startsWith('landing-')) {
+            const parts = curr.name.split('-');
+            foundDest = { x: parseInt(parts[1], 10), y: parseInt(parts[2], 10) };
+            break;
+          }
+          curr = curr.parent;
+        }
+        if (foundPegId || foundDest) break;
+      }
+    }
+
+    // Check if hovering over a pivot peg for the current selection
+    if (selectedPegId && foundPegId && !foundDest) {
+      const moveForPivot = validMoves.find((m) => m.pivotId === foundPegId);
+      if (moveForPivot) {
+        foundDest = moveForPivot.dest;
+      }
+    }
+
+    if (foundPegId !== hoveredPegIdRef.current) {
+      hoveredPegIdRef.current = foundPegId;
+      if (foundPegId) {
+        sound.playHover();
+        containerRef.current.style.cursor = 'pointer';
+      } else if (!foundDest) {
+        containerRef.current.style.cursor = 'default';
+      }
+      // Update visual states on wrappers
+      pegWrappersRef.current.forEach((wrapper) => {
+        const isHovered = wrapper.id === foundPegId;
+        const isSelected = wrapper.id === selectedPegId;
+        wrapper.targetY = isSelected ? 0.35 : isHovered ? 0.2 : 0;
+      });
+    }
+
+    if (foundDest !== hoveredMoveDestRef.current) {
+      hoveredMoveDestRef.current = foundDest;
+      if (foundDest) {
+        containerRef.current.style.cursor = 'pointer';
+        // Show Ghost Peg at Destination
+        if (ghostPegGroupRef.current) {
+          ghostPegGroupRef.current.position.set(foundDest.x, 0.05, foundDest.y);
+          ghostPegGroupRef.current.visible = true;
+        }
+      } else {
+        // Hide Ghost Peg
+        if (ghostPegGroupRef.current) {
+          ghostPegGroupRef.current.visible = false;
+        }
+      }
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!containerRef.current || !cameraRef.current || isAnimating || isMenuMode) return;
+
+    // Check if this was a drag or a click
+    const dx = Math.abs(e.clientX - pointerDownPosRef.current.x);
+    const dy = Math.abs(e.clientY - pointerDownPosRef.current.y);
+    if (dx > 6 || dy > 6) {
+      // User was orbiting/dragging camera, ignore as click
+      return;
+    }
+
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+
+    const hitList: THREE.Object3D[] = [];
+    if (pegsGroupRef.current) hitList.push(...pegsGroupRef.current.children);
+    if (landingHolesGroupRef.current) hitList.push(...landingHolesGroupRef.current.children);
+
+    const intersects = raycasterRef.current.intersectObjects(hitList, true);
+
+    let clickedPegId: string | null = null;
+    let clickedMoveDest: Point2D | null = null;
+
+    if (intersects.length > 0) {
+      for (const hit of intersects) {
+        let curr: THREE.Object3D | null = hit.object;
+        while (curr && curr.parent && curr.parent !== sceneRef.current) {
+          if (curr.name && curr.name.startsWith('peg-')) {
+            clickedPegId = curr.name.replace('peg-', '');
+            break;
+          }
+          if (curr.name && curr.name.startsWith('landing-')) {
+            const parts = curr.name.split('-');
+            clickedMoveDest = { x: parseInt(parts[1], 10), y: parseInt(parts[2], 10) };
+            break;
+          }
+          curr = curr.parent;
+        }
+        if (clickedPegId || clickedMoveDest) break;
+      }
+    }
+
+    // 1. If clicked a landing target ring -> Execute Jump!
+    if (clickedMoveDest && selectedPegId) {
+      const targetMove = validMoves.find(
+        (m) => m.dest.x === clickedMoveDest!.x && m.dest.y === clickedMoveDest!.y
+      );
+      if (targetMove) {
+        if (ghostPegGroupRef.current) {
+          ghostPegGroupRef.current.visible = false;
+        }
+        executeJumpAnimation(targetMove);
+        return;
+      }
+    }
+
+    // 2. If clicked a peg
+    if (clickedPegId) {
+      // If currently selected peg clicked again -> Deselect smoothly
+      if (clickedPegId === selectedPegId) {
+        sound.playSelect();
+        onSelectPeg(null);
+        if (ghostPegGroupRef.current) ghostPegGroupRef.current.visible = false;
+        return;
+      }
+
+      // If clicked a pivot peg for a valid move from the selected peg -> Execute Jump!
+      if (selectedPegId) {
+        const moveWithPivot = validMoves.find((m) => m.pivotId === clickedPegId);
+        if (moveWithPivot) {
+          if (ghostPegGroupRef.current) ghostPegGroupRef.current.visible = false;
+          executeJumpAnimation(moveWithPivot);
+          return;
+        }
+      }
+
+      // Otherwise select this new peg
+      sound.playSelect();
+      onSelectPeg(clickedPegId);
+      if (ghostPegGroupRef.current) ghostPegGroupRef.current.visible = false;
+      return;
+    }
+
+    // 3. Clicked empty background / grid -> Deselect
+    if (selectedPegId) {
+      onSelectPeg(null);
+      if (ghostPegGroupRef.current) ghostPegGroupRef.current.visible = false;
+    }
+  };
+
+  // 11. Execute Smooth 3D Parabolic Jump Animation
+  const executeJumpAnimation = (move: ValidMove) => {
+    const duration = 400; // 400ms per PRD
+    const apexHeight = Math.min(4.0, Math.max(1.2, move.distance * 0.5));
+
+    const startPos = new THREE.Vector3(move.from.x, 0, move.from.y);
+    const controlPos = new THREE.Vector3(move.pivot.x, apexHeight, move.pivot.y);
+    const endPos = new THREE.Vector3(move.dest.x, 0, move.dest.y);
+
+    // Audio triggers
+    sound.playJumpWhoosh(duration / 1000);
+
+    activeAnimationRef.current = {
+      pegId: move.pegId,
+      startPos,
+      controlPos,
+      endPos,
+      startTime: performance.now(),
+      duration,
+      move,
+      onComplete: () => {
+        sound.playLanding();
+        onExecuteMove(move);
+      },
+    };
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      id="three-canvas-container"
+      className="w-full h-full relative cursor-default touch-none"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onSelectPeg(null);
+        if (ghostPegGroupRef.current) ghostPegGroupRef.current.visible = false;
+      }}
+    />
+  );
+};
