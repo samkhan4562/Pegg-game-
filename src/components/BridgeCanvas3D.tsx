@@ -333,10 +333,12 @@ export const BridgeCanvas3D: React.FC<BridgeCanvas3DProps> = ({
       ...leftBank,
       ...rightBank,
       ...(crossingTravelers || []),
-    ];
+    ].filter((t): t is Traveler => Boolean(t && t.id));
 
     const uniqueMap = new Map<string, Traveler>();
-    allTravelers.forEach((t) => uniqueMap.set(t.id, t));
+    allTravelers.forEach((t) => {
+      if (t && t.id) uniqueMap.set(t.id, t);
+    });
 
     const bridgeStartX = -4.8;
     const bridgeEndX = 4.8;
@@ -347,8 +349,9 @@ export const BridgeCanvas3D: React.FC<BridgeCanvas3DProps> = ({
     let torchZ = 0;
 
     uniqueMap.forEach((traveler) => {
+      if (!traveler || !traveler.id) return;
       const isSelected = selectedIds.includes(traveler.id);
-      const isCrossing = crossingTravelers?.some((ct) => ct.id === traveler.id);
+      const isCrossing = crossingTravelers?.some((ct) => ct && ct.id === traveler.id) ?? false;
 
       let targetX = 0;
       let targetZ = 0;
@@ -358,7 +361,7 @@ export const BridgeCanvas3D: React.FC<BridgeCanvas3DProps> = ({
         // Interpolate along bridge
         const progress = crossingDirection === 'forward' ? crossingProgress : 1 - crossingProgress;
         targetX = THREE.MathUtils.lerp(bridgeStartX, bridgeEndX, progress);
-        const indexInGroup = crossingTravelers?.findIndex((ct) => ct.id === traveler.id) || 0;
+        const indexInGroup = crossingTravelers?.findIndex((ct) => ct && ct.id === traveler.id) ?? 0;
         const totalCrossing = crossingTravelers?.length || 2;
         if (totalCrossing === 1) {
           targetZ = 0;
@@ -369,16 +372,16 @@ export const BridgeCanvas3D: React.FC<BridgeCanvas3DProps> = ({
         }
         // Walking bounce effect
         targetY = 0.05 + Math.abs(Math.sin(crossingProgress * Math.PI * 8)) * 0.16;
-      } else if (leftBank.some((t) => t.id === traveler.id)) {
+      } else if (leftBank.some((t) => t && t.id === traveler.id)) {
         // Left Bank layout (supports up to 6 travelers in 2 clean staggered rows)
-        const idx = leftBank.findIndex((t) => t.id === traveler.id);
+        const idx = Math.max(0, leftBank.findIndex((t) => t && t.id === traveler.id));
         const row = Math.floor(idx / 3);
         const col = idx % 3;
         targetX = -6.5 - row * 1.45;
         targetZ = (col - 1) * 0.95;
       } else {
         // Right Bank layout (supports up to 6 travelers in 2 clean staggered rows)
-        const idx = rightBank.findIndex((t) => t.id === traveler.id);
+        const idx = Math.max(0, rightBank.findIndex((t) => t && t.id === traveler.id));
         const row = Math.floor(idx / 3);
         const col = idx % 3;
         targetX = 6.5 + row * 1.45;

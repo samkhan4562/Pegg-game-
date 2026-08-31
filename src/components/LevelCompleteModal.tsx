@@ -53,9 +53,10 @@ export const LevelCompleteModal: React.FC<LevelCompleteModalProps> = ({
 
   // Star calculation
   let stars = 1;
-  if (movesCount <= level.parMoves) {
+  const parMoves = level?.parMoves ?? 5;
+  if (movesCount <= parMoves) {
     stars = 3;
-  } else if (movesCount === level.parMoves + 1) {
+  } else if (movesCount === parMoves + 1) {
     stars = 2;
   }
 
@@ -72,7 +73,7 @@ export const LevelCompleteModal: React.FC<LevelCompleteModalProps> = ({
           Target Reached!
         </span>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-4">
-          Level {level.id} Complete
+          Level {level?.id ?? levelIndex + 1} Complete
         </h2>
 
         {/* Star Rating Display */}

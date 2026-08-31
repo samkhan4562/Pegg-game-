@@ -1,6 +1,6 @@
 {
   "name": "3D Jumping Pegs Puzzle",
-  "description": "Axiom Labs: 3D Mathematical & Logic Game Hub featuring Jumping Pegs and Midnight Bridge & Torch.",
+  "description": "Axiom Labs Arcade: featuring The Jumping Pegs 3D, Midnight Bridge & Torch, and Real-time Tic-Tac-Toe Pro (कांटा और ज़ीरो) with online multiplayer rooms, AI Bot, and live friends system.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

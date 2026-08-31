@@ -86,18 +86,18 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Center: Level Name & Difficulty Badge */}
         <div className="pointer-events-auto glass-panel px-4 py-2 rounded-2xl shadow-xl border border-white/10 flex items-center gap-2.5 max-w-[50vw] sm:max-w-md truncate">
           <span className="text-xs font-bold text-slate-400 font-mono-code shrink-0">
-            L{currentLevel.id}
+            L{currentLevel?.id ?? levelIndex + 1}
           </span>
           <div className="h-3.5 w-px bg-slate-700/60 shrink-0" />
           <h1 className="text-xs sm:text-sm font-bold text-slate-100 truncate tracking-tight">
-            {currentLevel.name}
+            {currentLevel?.name ?? 'Level'}
           </h1>
           <span
             className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${getDifficultyBadge(
-              currentLevel.difficulty
+              currentLevel?.difficulty ?? 'Easy'
             )}`}
           >
-            {currentLevel.difficulty}
+            {currentLevel?.difficulty ?? 'Easy'}
           </span>
         </div>
 
@@ -130,7 +130,7 @@ export const HUD: React.FC<HUDProps> = ({
                 >
                   {movesCount}
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono-code">/ {currentLevel.parMoves}</span>
+                <span className="text-[10px] text-slate-400 font-mono-code">/ {currentLevel?.parMoves ?? 5}</span>
               </div>
             </div>
           </div>

@@ -60,14 +60,18 @@ export function getDistance(p1: Point2D, p2: Point2D): number {
  * Computes all legal reflection moves for a specific peg A given current pegs
  */
 export function getValidMovesForPeg(
-  pegA: PegData,
+  pegOrId: PegData | string | null | undefined,
   allPegs: PegData[],
   bounds = DEFAULT_GRID_BOUNDS
 ): ValidMove[] {
+  if (!pegOrId || !allPegs || allPegs.length === 0) return [];
+  const pegA = typeof pegOrId === 'string' ? allPegs.find((p) => p && p.id === pegOrId) : pegOrId;
+  if (!pegA || !pegA.id) return [];
+
   const validMoves: ValidMove[] = [];
 
   for (const pegB of allPegs) {
-    if (pegB.id === pegA.id) continue; // Cannot jump over itself
+    if (!pegB || pegB.id === pegA.id) continue; // Cannot jump over itself
 
     const dest = calculateReflection(pegA, pegB);
 

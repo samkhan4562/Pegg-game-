@@ -102,4 +102,12 @@ export interface OptimalSolutionResult {
 // MASTER PORTAL & HUB TYPES
 // ==============================
 
-export type ActiveGameView = 'hub' | 'pegs' | 'bridge';
+export type ActiveGameView = 'hub' | 'pegs' | 'bridge' | 'tictactoe';
+
+// ==============================
+// GAME 3: TIC-TAC-TOE & FRIENDS TYPES
+// ==============================
+
+export type TicTacToeSymbol = 'X' | 'O';
+export type TicTacToeDifficulty = 'easy' | 'medium' | 'unbeatable';
+

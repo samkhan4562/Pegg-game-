@@ -45,7 +45,8 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
         {/* Level Cards Grid */}
         <div className="p-5 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-3.5 custom-scrollbar">
           {levels.map((level, idx) => {
-            const levelProg = progress[level.id] || {
+            const levelId = level?.id ?? idx + 1;
+            const levelProg = progress[levelId] || {
               unlocked: idx === 0,
               bestMoves: null,
               stars: 0,
@@ -55,7 +56,7 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
 
             return (
               <div
-                key={`level-${level.id}-${idx}`}
+                key={`level-${levelId}-${idx}`}
                 onClick={() => {
                   if (isUnlocked) {
                     onSelectLevel(idx);
@@ -74,10 +75,10 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-bold text-slate-400 font-mono-code">
-                        #{level.id}
+                        #{levelId}
                       </span>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                        {level.difficulty}
+                        {level?.difficulty ?? 'Easy'}
                       </span>
                       {isCurrent && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
@@ -85,7 +86,7 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <h3 className="font-bold text-slate-100 text-sm">{level.name}</h3>
+                    <h3 className="font-bold text-slate-100 text-sm">{level?.name ?? 'Level'}</h3>
                   </div>
 
                   {/* Lock / Star icons */}

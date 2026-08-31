@@ -73,9 +73,9 @@ export const BridgeVictoryModal: React.FC<BridgeVictoryModalProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            Level {level.id} Completed
+            Level {level?.id ?? levelIndex + 1} Completed
           </h2>
-          <p className="text-sm text-slate-400 mt-1 mb-6">{level.name}</p>
+          <p className="text-sm text-slate-400 mt-1 mb-6">{level?.name ?? 'Level'}</p>
 
           {/* Star Rating Animation */}
           <div className="flex items-center justify-center gap-3 mb-6">

@@ -300,36 +300,27 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       if (activeAnimationRef.current) {
         const anim = activeAnimationRef.current;
         const now = performance.now();
-        const progress = Math.min(1.0, (now - anim.startTime) / anim.duration);
+        const rawProgress = (now - anim.startTime) / anim.duration;
+        const progress = Math.min(1.0, Math.max(0.0, rawProgress));
 
-        // Parabolic Bezier Curve: B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
-        const t = progress;
-        const oneMinusT = 1 - t;
-        const currentX =
-          oneMinusT * oneMinusT * anim.startPos.x +
-          2 * oneMinusT * t * anim.controlPos.x +
-          t * t * anim.endPos.x;
-        const currentY =
-          oneMinusT * oneMinusT * anim.startPos.y +
-          2 * oneMinusT * t * anim.controlPos.y +
-          t * t * anim.endPos.y;
-        const currentZ =
-          oneMinusT * oneMinusT * anim.startPos.z +
-          2 * oneMinusT * t * anim.controlPos.z +
-          t * t * anim.endPos.z;
+        // Smooth trajectory: Smooth linear horizontal lerp + smooth parabolic vertical arc
+        const smoothT = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        const currentX = anim.startPos.x + (anim.endPos.x - anim.startPos.x) * smoothT;
+        const currentZ = anim.startPos.z + (anim.endPos.z - anim.startPos.z) * smoothT;
+        // Natural physics sine arc for vertical leap
+        const arcY = Math.sin(progress * Math.PI) * (anim.controlPos.y || 1.8);
 
         const pegWrapper = pegWrappersRef.current.get(anim.pegId);
         if (pegWrapper) {
-          pegWrapper.group.position.set(currentX, currentY, currentZ);
+          pegWrapper.group.position.set(currentX, arcY, currentZ);
 
-          // Flight stretch / tilt
-          if (progress < 0.9) {
-            pegWrapper.group.scale.set(0.95, 1.12, 0.95);
+          // Flight stretch and squash
+          if (progress < 0.85) {
+            pegWrapper.group.scale.set(0.96, 1.08, 0.96);
           } else {
-            // Landing squash
-            const landingT = (progress - 0.9) / 0.1;
-            const squash = 1.0 - (1.0 - landingT) * 0.22;
-            pegWrapper.group.scale.set(1.12, squash, 1.12);
+            const landingT = (progress - 0.85) / 0.15;
+            const squash = 1.0 - (1.0 - landingT) * 0.12;
+            pegWrapper.group.scale.set(1.06, squash, 1.06);
           }
         }
 
@@ -339,9 +330,12 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
             pegWrapper.group.scale.set(1, 1, 1);
             pegWrapper.currentY = 0;
             pegWrapper.targetY = 0;
+            pegWrapper.currentScaleY = 1;
+            pegWrapper.targetScaleY = 1;
           }
+          const callback = anim.onComplete;
           activeAnimationRef.current = null;
-          anim.onComplete();
+          callback();
         }
       }
 
@@ -817,7 +811,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
         color: isCurrentPivot ? 0x06b6d4 : 0x0ea5e9,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: isCurrentPivot ? 0.95 : 0.45,
+        opacity: isCurrentPivot ? 0.95 : 0.55,
       });
       const pRingMesh = new THREE.Mesh(pRingGeo, pRingMat);
       pRingMesh.rotation.x = -Math.PI / 2;
@@ -825,12 +819,12 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
 
       // Outer ripple for active pivot
       if (isCurrentPivot) {
-        const outerGeo = new THREE.RingGeometry(0.52, 0.60, 32);
+        const outerGeo = new THREE.RingGeometry(0.52, 0.62, 32);
         const outerMat = new THREE.MeshBasicMaterial({
           color: 0x22d3ee,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: 0.55,
+          opacity: 0.6,
         });
         const outerMesh = new THREE.Mesh(outerGeo, outerMat);
         outerMesh.rotation.x = -Math.PI / 2;
@@ -840,7 +834,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       pivotsGroup.add(pivotGroupItem);
     });
 
-    // 2. Render Landing Target Rings for ALL valid moves (active move highlighted)
+    // 2. Render Landing Target Rings for ALL valid moves
     validMoves.forEach((move) => {
       const isCurrentMove =
         move.pivotId === activeMove.pivotId &&
@@ -853,35 +847,38 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       // Inner ring
       const ringGeo = new THREE.RingGeometry(0.22, 0.38, 32);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: isCurrentMove ? 0xf59e0b : 0xd97706,
+        color: isCurrentMove ? 0xf59e0b : 0xf97316,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: isCurrentMove ? 0.95 : 0.6,
+        opacity: isCurrentMove ? 0.95 : 0.75,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = -Math.PI / 2;
       landingGroupItem.add(ringMesh);
 
-      // Outer ripple ring for active move
-      if (isCurrentMove) {
-        const outerRingGeo = new THREE.RingGeometry(0.44, 0.56, 32);
-        const outerRingMat = new THREE.MeshBasicMaterial({
-          color: 0xfbbf24,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.65,
-        });
-        const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
-        outerRingMesh.rotation.x = -Math.PI / 2;
-        landingGroupItem.add(outerRingMesh);
-      }
+      // Outer ripple ring
+      const outerRingGeo = new THREE.RingGeometry(0.44, 0.56, 32);
+      const outerRingMat = new THREE.MeshBasicMaterial({
+        color: isCurrentMove ? 0xfbbf24 : 0xf59e0b,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: isCurrentMove ? 0.7 : 0.4,
+      });
+      const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
+      outerRingMesh.rotation.x = -Math.PI / 2;
+      landingGroupItem.add(outerRingMesh);
 
-      // Clickable Hit Disc for Landing Ring
-      const hitDiscGeo = new THREE.CircleGeometry(0.65, 24);
+      // Clickable / Touchable Hit Disc for Landing Ring
+      const hitDiscGeo = new THREE.CircleGeometry(0.72, 24);
       const hitDiscMat = new THREE.MeshBasicMaterial({ visible: false });
       const hitDisc = new THREE.Mesh(hitDiscGeo, hitDiscMat);
       hitDisc.rotation.x = -Math.PI / 2;
-      hitDisc.name = `landing-${move.dest.x}-${move.dest.y}`;
+      hitDisc.name = 'landing_hitdisc';
+      hitDisc.userData = {
+        isLanding: true,
+        move: move,
+        dest: move.dest,
+      };
       landingGroupItem.add(hitDisc);
 
       landingGroup.add(landingGroupItem);
@@ -892,49 +889,72 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       });
     });
 
-    // 3. Render SINGLE Focused 180° Point-Reflection Trajectory Curve and Ground Line
-    // Ground Projection Dashed Line (Start -> Pivot -> Dest)
-    const groundPoints = [
-      new THREE.Vector3(activeMove.from.x, 0.02, activeMove.from.y),
-      new THREE.Vector3(activeMove.pivot.x, 0.02, activeMove.pivot.y),
-      new THREE.Vector3(activeMove.dest.x, 0.02, activeMove.dest.y),
-    ];
-    const groundGeo = new THREE.BufferGeometry().setFromPoints(groundPoints);
-    const groundMat = new THREE.LineDashedMaterial({
-      color: 0x06b6d4,
-      dashSize: 0.2,
-      gapSize: 0.12,
-      linewidth: 2.5,
-      transparent: true,
-      opacity: 0.85,
+    // 3. Render Trajectory Curves and Ground Lines for ALL Valid Moves
+    validMoves.forEach((move) => {
+      const isCurrentMove =
+        move.pivotId === activeMove.pivotId &&
+        move.dest.x === activeMove.dest.x &&
+        move.dest.y === activeMove.dest.y;
+
+      // Ground Projection Dashed Line (Start -> Pivot -> Dest)
+      const groundPoints = [
+        new THREE.Vector3(move.from.x, 0.02, move.from.y),
+        new THREE.Vector3(move.pivot.x, 0.02, move.pivot.y),
+        new THREE.Vector3(move.dest.x, 0.02, move.dest.y),
+      ];
+      const groundGeo = new THREE.BufferGeometry().setFromPoints(groundPoints);
+      const groundMat = new THREE.LineDashedMaterial({
+        color: isCurrentMove ? 0x06b6d4 : 0x0ea5e9,
+        dashSize: 0.22,
+        gapSize: isCurrentMove ? 0.1 : 0.14,
+        linewidth: isCurrentMove ? 3.0 : 2.0,
+        transparent: true,
+        opacity: isCurrentMove ? 0.9 : 0.55,
+      });
+      const groundLine = new THREE.Line(groundGeo, groundMat);
+      groundLine.computeLineDistances();
+      guideGroup.add(groundLine);
+
+      // Parabolic 3D Bezier Curve (Flying Arcs)
+      const apexHeight = Math.min(3.8, Math.max(1.3, move.distance * 0.55));
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(move.from.x, 0.6, move.from.y),
+        new THREE.Vector3(move.pivot.x, 0.6 + apexHeight, move.pivot.y),
+        new THREE.Vector3(move.dest.x, 0.6, move.dest.y)
+      );
+
+      const curvePoints = curve.getPoints(36);
+      const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      const curveMat = new THREE.LineDashedMaterial({
+        color: isCurrentMove ? 0xfbbf24 : 0xf97316,
+        dashSize: isCurrentMove ? 0.28 : 0.22,
+        gapSize: isCurrentMove ? 0.1 : 0.14,
+        linewidth: isCurrentMove ? 3.8 : 2.6,
+        transparent: true,
+        opacity: isCurrentMove ? 0.98 : 0.8,
+      });
+      const arcLine = new THREE.Line(curveGeo, curveMat);
+      arcLine.computeLineDistances();
+      guideGroup.add(arcLine);
+
+      // Trajectory bead points along the curve for crisp visibility
+      const numBeads = Math.max(4, Math.min(8, Math.round(move.distance * 1.5)));
+      const beadGeo = new THREE.SphereGeometry(isCurrentMove ? 0.055 : 0.042, 8, 8);
+      const beadMat = new THREE.MeshBasicMaterial({
+        color: isCurrentMove ? 0xfffbeb : 0xfef08a,
+        transparent: true,
+        opacity: isCurrentMove ? 0.95 : 0.75,
+      });
+      for (let i = 1; i <= numBeads; i++) {
+        const t = i / (numBeads + 1);
+        const pt = curve.getPoint(t);
+        const bead = new THREE.Mesh(beadGeo, beadMat);
+        bead.position.copy(pt);
+        guideGroup.add(bead);
+      }
     });
-    const groundLine = new THREE.Line(groundGeo, groundMat);
-    groundLine.computeLineDistances();
-    guideGroup.add(groundLine);
 
-    // Parabolic 3D Bezier Curve
-    const apexHeight = Math.min(3.8, Math.max(1.3, activeMove.distance * 0.55));
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(activeMove.from.x, 0.6, activeMove.from.y),
-      new THREE.Vector3(activeMove.pivot.x, 0.6 + apexHeight, activeMove.pivot.y),
-      new THREE.Vector3(activeMove.dest.x, 0.6, activeMove.dest.y)
-    );
-
-    const curvePoints = curve.getPoints(36);
-    const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-    const curveMat = new THREE.LineDashedMaterial({
-      color: 0xfbbf24,
-      dashSize: 0.25,
-      gapSize: 0.1,
-      linewidth: 3.5,
-      transparent: true,
-      opacity: 0.95,
-    });
-    const arcLine = new THREE.Line(curveGeo, curveMat);
-    arcLine.computeLineDistances();
-    guideGroup.add(arcLine);
-
-    // Position Ghost Peg at destination
+    // 4. Position Ghost Peg at destination of currently focused move
     if (ghostPegGroupRef.current) {
       ghostPegGroupRef.current.position.set(
         activeMove.dest.x,
@@ -1033,13 +1053,12 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       for (const hit of intersects) {
         let curr: THREE.Object3D | null = hit.object;
         while (curr && curr.parent && curr.parent !== sceneRef.current) {
-          if (curr.name && curr.name.startsWith('peg-')) {
-            foundPegId = curr.name.replace('peg-', '');
+          if (curr.userData && curr.userData.isLanding && curr.userData.dest) {
+            foundDest = curr.userData.dest;
             break;
           }
-          if (curr.name && curr.name.startsWith('landing-')) {
-            const parts = curr.name.split('-');
-            foundDest = { x: parseInt(parts[1], 10), y: parseInt(parts[2], 10) };
+          if (curr.name && curr.name.startsWith('peg-')) {
+            foundPegId = curr.name.replace('peg-', '');
             break;
           }
           curr = curr.parent;
@@ -1112,39 +1131,33 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     const intersects = raycasterRef.current.intersectObjects(hitList, true);
 
     let clickedPegId: string | null = null;
-    let clickedMoveDest: Point2D | null = null;
+    let clickedMove: ValidMove | null = null;
 
     if (intersects.length > 0) {
       for (const hit of intersects) {
         let curr: THREE.Object3D | null = hit.object;
         while (curr && curr.parent && curr.parent !== sceneRef.current) {
+          if (curr.userData && curr.userData.isLanding && curr.userData.move) {
+            clickedMove = curr.userData.move;
+            break;
+          }
           if (curr.name && curr.name.startsWith('peg-')) {
             clickedPegId = curr.name.replace('peg-', '');
             break;
           }
-          if (curr.name && curr.name.startsWith('landing-')) {
-            const parts = curr.name.split('-');
-            clickedMoveDest = { x: parseInt(parts[1], 10), y: parseInt(parts[2], 10) };
-            break;
-          }
           curr = curr.parent;
         }
-        if (clickedPegId || clickedMoveDest) break;
+        if (clickedPegId || clickedMove) break;
       }
     }
 
     // 1. If clicked a landing target ring -> Execute Jump!
-    if (clickedMoveDest && selectedPegId) {
-      const targetMove = validMoves.find(
-        (m) => m.dest.x === clickedMoveDest!.x && m.dest.y === clickedMoveDest!.y
-      );
-      if (targetMove) {
-        if (ghostPegGroupRef.current) {
-          ghostPegGroupRef.current.visible = false;
-        }
-        executeJumpAnimation(targetMove);
-        return;
+    if (clickedMove && selectedPegId) {
+      if (ghostPegGroupRef.current) {
+        ghostPegGroupRef.current.visible = false;
       }
+      executeJumpAnimation(clickedMove);
+      return;
     }
 
     // 2. If clicked a peg

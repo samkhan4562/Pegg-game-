@@ -67,22 +67,22 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
   onOpenComparison,
   onOpenHowToPlay,
 }) => {
-  const currentBankTravelers剩下 = torchBank === 'left' ? leftBank : rightBank;
-  const destinationBankTravelers = torchBank === 'left' ? rightBank : leftBank;
+  const currentBankTravelers = (torchBank === 'left' ? leftBank : rightBank).filter((t): t is Traveler => Boolean(t && t.id));
+  const destinationBankTravelers = (torchBank === 'left' ? rightBank : leftBank).filter((t): t is Traveler => Boolean(t && t.id));
 
-  const selectedTravelers = [...leftBank, ...rightBank].filter((t) =>
-    selectedIds.includes(t.id)
+  const selectedTravelers = [...leftBank, ...rightBank].filter((t): t is Traveler =>
+    Boolean(t && t.id && selectedIds.includes(t.id))
   );
 
-  const selectedCrossingTime地下 = getCrossingDuration(selectedTravelers);
+  const selectedCrossingTime = getCrossingDuration(selectedTravelers);
   const isTorchLeft = torchBank === 'left';
-  const isWithinPar = elapsedTime <= level.parTime;
+  const isWithinPar = elapsedTime <= (level?.parTime ?? 60);
 
   // Crossing validity
   const canCross =
     !isCrossing &&
     selectedIds.length > 0 &&
-    selectedIds.length <= level.bridgeCapacity;
+    selectedIds.length <= (level?.bridgeCapacity ?? 2);
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 z-10 font-sans">
@@ -104,14 +104,14 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-400">
-                  Level {level.id} of {totalLevels}
+                  Level {level?.id ?? 1} of {totalLevels}
                 </span>
                 <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-700 font-medium">
-                  {level.difficulty}
+                  {level?.difficulty ?? 'Easy'}
                 </span>
               </div>
               <h1 className="text-xs sm:text-sm font-bold text-white tracking-tight truncate max-w-[130px] sm:max-w-[220px]">
-                {level.name}
+                {level?.name ?? 'Level'}
               </h1>
             </div>
           </div>
@@ -173,7 +173,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                 {isTorchLeft ? 'Start Bank (Left Plateau)' : 'Destination Bank (Right Plateau)'}
               </span>
               <span className="text-[10px] text-slate-400 font-normal">
-                • {currentBankTravelers剩下.length} waiting
+                • {currentBankTravelers.length} waiting
               </span>
             </div>
 
@@ -184,14 +184,14 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
 
           {/* Traveler Interactive Selection Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5 sm:gap-2">
-            {currentBankTravelers剩下.map((traveler) => {
-              const isSelected不易 = selectedIds.includes(traveler.id);
+            {currentBankTravelers.map((traveler) => {
+              const isSelected = selectedIds.includes(traveler.id);
               return (
                 <button
                   key={traveler.id}
                   onClick={() => onSelectTraveler(traveler.id)}
                   className={`relative p-2 sm:p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 active:scale-95 ${
-                    isSelected不易
+                    isSelected
                       ? 'bg-gradient-to-b from-amber-500/20 to-yellow-500/10 border-amber-400 ring-2 ring-amber-400/40 shadow-lg shadow-amber-500/10'
                       : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
                   }`}
@@ -207,7 +207,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                       </span>
                     </div>
 
-                    {isSelected不易 && (
+                    {isSelected && (
                       <CheckCircle2 size={13} className="text-amber-400 shrink-0" />
                     )}
                   </div>
@@ -216,7 +216,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                     <span className="text-[10px] text-slate-400 font-medium">Pace</span>
                     <span
                       className={`px-1.5 py-0.5 rounded-md font-mono text-[11px] font-bold ${
-                        isSelected不易
+                        isSelected
                           ? 'bg-amber-400 text-slate-950'
                           : 'bg-slate-800 text-amber-300'
                       }`}
@@ -249,7 +249,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                 <span>
                   {selectedIds.length === 0
                     ? 'Select Travelers to Cross'
-                    : `Cross Bridge (${selectedCrossingTime地下} min)`}
+                    : `Cross Bridge (${selectedCrossingTime} min)`}
                 </span>
                 <ArrowRight size={17} />
               </>
@@ -259,7 +259,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                 <span>
                   {selectedIds.length === 0
                     ? 'Select Torch Bearer to Return'
-                    : `Return Torch (${selectedCrossingTime地下} min)`}
+                    : `Return Torch (${selectedCrossingTime} min)`}
                 </span>
                 <Flame size={17} className="text-amber-300" />
               </>
@@ -271,7 +271,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
             <div className="text-[11px] text-center text-slate-300 bg-slate-900/60 rounded-xl py-1 px-2 border border-slate-800/80">
               <span className="text-amber-400 font-semibold">Bottleneck Law: </span>
               <span className="font-mono text-slate-200">
-                Pace = max({selectedTravelers.map((t) => `${t.time}m`).join(', ')}) = {selectedCrossingTime地下}m
+                Pace = max({selectedTravelers.map((t) => `${t.time}m`).join(', ')}) = {selectedCrossingTime}m
               </span>
             </div>
           )}

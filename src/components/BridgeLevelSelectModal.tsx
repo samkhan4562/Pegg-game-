@@ -58,7 +58,8 @@ export const BridgeLevelSelectModal: React.FC<BridgeLevelSelectModalProps> = ({
           {/* Level Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 my-6 overflow-y-auto pr-1">
             {levels.map((lvl, idx) => {
-              const record = progress[lvl.id] || {
+              const lvlId = lvl?.id ?? idx + 1;
+              const record = progress[lvlId] || {
                 unlocked: idx === 0,
                 bestTime: null,
                 stars: 0,
@@ -68,7 +69,7 @@ export const BridgeLevelSelectModal: React.FC<BridgeLevelSelectModalProps> = ({
 
               return (
                 <button
-                  key={`bridge-lvl-${lvl.id}-${idx}`}
+                  key={`bridge-lvl-${lvlId}-${idx}`}
                   disabled={isLocked}
                   onClick={() => {
                     onSelectLevel(idx);
@@ -85,10 +86,10 @@ export const BridgeLevelSelectModal: React.FC<BridgeLevelSelectModalProps> = ({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-amber-400">
-                        #{lvl.id}
+                        #{lvlId}
                       </span>
                       <span className="text-xs font-semibold text-white">
-                        {lvl.name}
+                        {lvl?.name ?? 'Level'}
                       </span>
                     </div>
 
