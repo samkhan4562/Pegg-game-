@@ -6,10 +6,11 @@
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private muted: boolean = false;
+  private footstepInterval: number | null = null;
 
   constructor() {
     // Check localStorage for saved sound preference
-    const saved = localStorage.getItem('peg_puzzle_sound_muted');
+    const saved = localStorage.getItem('axiom_labs_sound_muted');
     if (saved !== null) {
       this.muted = saved === 'true';
     }
@@ -33,7 +34,10 @@ class SoundEngine {
 
   public setMuted(muted: boolean): boolean {
     this.muted = muted;
-    localStorage.setItem('peg_puzzle_sound_muted', String(muted));
+    localStorage.setItem('axiom_labs_sound_muted', String(muted));
+    if (muted) {
+      this.stopFootsteps();
+    }
     return this.muted;
   }
 
@@ -69,7 +73,7 @@ class SoundEngine {
     }
   }
 
-  // Peg selection chirp
+  // Peg / Traveler selection chirp
   public playSelect() {
     if (this.muted) return;
     this.initContext();
@@ -97,7 +101,104 @@ class SoundEngine {
     }
   }
 
-  // Parabolic jump whoosh
+  // Torch Pickup & Ignition Sound
+  public playTorchIgnite() {
+    if (this.muted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      // Resonant strike
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(640, now + 0.1);
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+
+      // Warm crackle noise burst
+      const bufferSize = this.ctx.sampleRate * 0.15;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const output = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = this.ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(1200, now);
+      noiseFilter.Q.setValueAtTime(2, now);
+
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.04, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+      noise.start(now);
+      noise.stop(now + 0.16);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Wooden rhythmic footstep on bridge
+  public playFootstep() {
+    if (this.muted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      // Low wooden thud
+      const pitch = 140 + Math.random() * 40;
+      osc.frequency.setValueAtTime(pitch, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.06);
+
+      gain.gain.setValueAtTime(0.07, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Start continuous rhythmic footsteps during crossing
+  public startFootsteps(stepPaceMs: number = 320) {
+    this.stopFootsteps();
+    if (this.muted) return;
+    this.playFootstep();
+    this.footstepInterval = window.setInterval(() => {
+      this.playFootstep();
+    }, stepPaceMs);
+  }
+
+  public stopFootsteps() {
+    if (this.footstepInterval !== null) {
+      clearInterval(this.footstepInterval);
+      this.footstepInterval = null;
+    }
+  }
+
+  // Parabolic jump / torch return whoosh
   public playJumpWhoosh(duration = 0.4) {
     if (this.muted) return;
     this.initContext();
@@ -108,7 +209,6 @@ class SoundEngine {
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
 
-      // Pitch rises to apex then falls
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(260, now);
       osc.frequency.linearRampToValueAtTime(580, now + duration * 0.5);
@@ -136,7 +236,6 @@ class SoundEngine {
 
     try {
       const now = this.ctx.currentTime;
-      // Tone 1: Wooden pop
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
 
@@ -153,7 +252,6 @@ class SoundEngine {
       osc.start(now);
       osc.stop(now + 0.15);
 
-      // Tone 2: Subtle click
       const click = this.ctx.createOscillator();
       const clickGain = this.ctx.createGain();
       click.type = 'triangle';
@@ -178,20 +276,20 @@ class SoundEngine {
 
     try {
       const now = this.ctx.currentTime;
-      const chord = [523.25, 659.25, 783.99, 1046.50, 1318.51]; // C5, E5, G5, C6, E6
+      const chord = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98]; // C5, E5, G5, C6, E6, G6
 
       chord.forEach((freq, idx) => {
         const osc = this.ctx!.createOscillator();
         const gain = this.ctx!.createGain();
-        const delay = idx * 0.07;
+        const delay = idx * 0.06;
         const noteStart = now + delay;
-        const noteDuration = 0.8 - idx * 0.05;
+        const noteDuration = 0.9 - idx * 0.04;
 
         osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
         osc.frequency.setValueAtTime(freq, noteStart);
 
         gain.gain.setValueAtTime(0.0001, noteStart);
-        gain.gain.linearRampToValueAtTime(0.07, noteStart + 0.04);
+        gain.gain.linearRampToValueAtTime(0.08, noteStart + 0.04);
         gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + noteDuration);
 
         osc.connect(gain);
@@ -233,7 +331,7 @@ class SoundEngine {
     }
   }
 
-  // Invalid buzz
+  // Invalid buzz / error thump
   public playError() {
     if (this.muted) return;
     this.initContext();
@@ -246,9 +344,9 @@ class SoundEngine {
 
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(140, now);
-      osc.frequency.setValueAtTime(120, now + 0.06);
+      osc.frequency.setValueAtTime(110, now + 0.06);
 
-      gain.gain.setValueAtTime(0.04, now);
+      gain.gain.setValueAtTime(0.06, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
 
       osc.connect(gain);

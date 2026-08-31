@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { MasterPortal } from './components/MasterPortal';
 import { GameCanvas3D } from './components/GameCanvas3D';
 import { HUD } from './components/HUD';
 import { HeroMenu } from './components/HeroMenu';
@@ -7,37 +8,52 @@ import { LevelCompleteModal } from './components/LevelCompleteModal';
 import { LevelSelectModal } from './components/LevelSelectModal';
 import { HowToPlayModal } from './components/HowToPlayModal';
 import { LevelEditorModal } from './components/LevelEditorModal';
+import { BridgeGame } from './components/BridgeGame';
 import { LEVELS } from './data/levels';
-import { LevelData, PegData, ValidMove, LevelProgress, MoveHistoryItem, ScreenMode } from './types';
+import { BRIDGE_LEVELS } from './data/bridgeLevels';
+import {
+  LevelData,
+  PegData,
+  ValidMove,
+  LevelProgress,
+  MoveHistoryItem,
+  ScreenMode,
+  ActiveGameView,
+  BridgeProgress,
+} from './types';
 import { getValidMovesForPeg, isTargetReached } from './game/reflectionMath';
 import { sound } from './audio/soundEffects';
 
 export default function App() {
-  // Screen Mode ('menu' | 'game')
+  // Master Platform Game View ('hub' | 'pegs' | 'bridge')
+  const [activeGame, setActiveGame] = useState<ActiveGameView>('hub');
+
+  // Jumping Pegs: Screen Mode ('menu' | 'game')
   const [screenMode, setScreenMode] = useState<ScreenMode>('menu');
 
-  // Level State
+  // Jumping Pegs: Level State
   const [levelList, setLevelList] = useState<LevelData[]>(LEVELS);
   const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
   const currentLevel = levelList[currentLevelIndex] || LEVELS[0];
 
-  // Gameplay State
+  // Jumping Pegs: Gameplay State
   const [pegs, setPegs] = useState<PegData[]>([]);
   const [movesCount, setMovesCount] = useState<number>(0);
   const [history, setHistory] = useState<MoveHistoryItem[]>([]);
   const [selectedPegId, setSelectedPegId] = useState<string | null>(null);
+  const [focusedMove, setFocusedMove] = useState<ValidMove | null>(null);
   const [isAnimating, setIsAnimating] = useState<boolean>(false);
   const [isLevelComplete, setIsLevelComplete] = useState<boolean>(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState<number>(0);
   const [isMuted, setIsMuted] = useState<boolean>(sound.isMuted());
 
-  // Slide Drawer & Modal States
+  // Slide Drawer & Modal States (Jumping Pegs)
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [isLevelSelectOpen, setIsLevelSelectOpen] = useState<boolean>(false);
   const [isHowToPlayOpen, setIsHowToPlayOpen] = useState<boolean>(false);
   const [isSandboxOpen, setIsSandboxOpen] = useState<boolean>(false);
 
-  // Persistence State (Unlocked levels, best scores, stars)
+  // Jumping Pegs: Persistence State
   const [progress, setProgress] = useState<Record<number, LevelProgress>>(() => {
     try {
       const saved = localStorage.getItem('peg_puzzle_progress_v2');
@@ -50,7 +66,43 @@ export default function App() {
     };
   });
 
-  // Load Level helper
+  // Midnight Bridge: Persistence State (for Master Hub aggregation)
+  const [bridgeProgress, setBridgeProgress] = useState<Record<number, BridgeProgress>>(() => {
+    try {
+      const saved = localStorage.getItem('bridge_puzzle_progress_v2');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Fallback
+    }
+    return {
+      1: { unlocked: true, bestTime: null, stars: 0 },
+    };
+  });
+
+  // Calculate Aggregated Stars
+  const pegsStars = useMemo(() => {
+    return Object.values(progress).reduce((acc: number, p: LevelProgress) => acc + (p?.stars || 0), 0);
+  }, [progress]);
+
+  const maxPegsStars = useMemo(() => LEVELS.length * 3, []);
+
+  const bridgeStars = useMemo(() => {
+    return Object.values(bridgeProgress).reduce((acc: number, p: BridgeProgress) => acc + (p?.stars || 0), 0);
+  }, [bridgeProgress]);
+
+  const maxBridgeStars = useMemo(() => BRIDGE_LEVELS.length * 3, []);
+
+  // Synchronize bridge progress when returning to hub
+  const refreshBridgeProgress = useCallback(() => {
+    try {
+      const saved = localStorage.getItem('bridge_puzzle_progress_v2');
+      if (saved) setBridgeProgress(JSON.parse(saved));
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  // Load Level Helper (Jumping Pegs)
   const loadLevel = useCallback(
     (index: number) => {
       const targetLevel = levelList[index] || levelList[0];
@@ -82,7 +134,6 @@ export default function App() {
   // Start / Continue Campaign from Title Screen
   const handleStartCampaign = useCallback(() => {
     sound.playSelect();
-    // Find highest unlocked or uncompleted level
     let targetIndex = 0;
     for (let i = 0; i < levelList.length; i++) {
       const lvl = levelList[i];
@@ -90,7 +141,7 @@ export default function App() {
       if (prog && prog.unlocked) {
         targetIndex = i;
         if (prog.bestMoves === null) {
-          break; // First uncompleted level
+          break;
         }
       }
     }
@@ -98,17 +149,15 @@ export default function App() {
     setScreenMode('game');
   }, [levelList, progress, loadLevel]);
 
-  // Execute Valid Move
+  // Execute Valid Move (Jumping Pegs)
   const handleExecuteMove = useCallback(
     (move: ValidMove) => {
-      // Record History for Undo
       const snapshot: MoveHistoryItem = {
         pegs: pegs.map((p) => ({ ...p })),
         move,
       };
       setHistory((prev) => [...prev, snapshot]);
 
-      // Update Peg Coordinate
       const newPegs = pegs.map((p) =>
         p.id === move.pegId ? { ...p, x: move.dest.x, y: move.dest.y } : p
       );
@@ -119,12 +168,10 @@ export default function App() {
       setSelectedPegId(null);
       setIsAnimating(false);
 
-      // Check Target Win Condition
       if (isTargetReached(newPegs, currentLevel.target)) {
         sound.playWin();
         setIsLevelComplete(true);
 
-        // Calculate Stars
         let starsEarned = 1;
         if (nextMovesCount <= currentLevel.parMoves) {
           starsEarned = 3;
@@ -132,7 +179,6 @@ export default function App() {
           starsEarned = 2;
         }
 
-        // Update & Persist Progress
         setProgress((prev) => {
           const currentRecord = prev[currentLevel.id] || {
             unlocked: true,
@@ -164,7 +210,7 @@ export default function App() {
           try {
             localStorage.setItem('peg_puzzle_progress_v2', JSON.stringify(updated));
           } catch {
-            // Ignore storage errors
+            // Ignore
           }
           return updated;
         });
@@ -173,7 +219,7 @@ export default function App() {
     [pegs, movesCount, currentLevel]
   );
 
-  // Undo Move
+  // Undo Move (Jumping Pegs)
   const handleUndo = useCallback(() => {
     if (history.length === 0 || isAnimating || isLevelComplete) return;
 
@@ -185,14 +231,14 @@ export default function App() {
     setSelectedPegId(null);
   }, [history, isAnimating, isLevelComplete]);
 
-  // Restart Level
+  // Restart Level (Jumping Pegs)
   const handleRestart = useCallback(() => {
     if (isAnimating) return;
     sound.playSelect();
     loadLevel(currentLevelIndex);
   }, [isAnimating, currentLevelIndex, loadLevel]);
 
-  // Next Level
+  // Next Level (Jumping Pegs)
   const handleNextLevel = useCallback(() => {
     if (currentLevelIndex < levelList.length - 1) {
       loadLevel(currentLevelIndex + 1);
@@ -211,7 +257,7 @@ export default function App() {
     setIsMuted(nextMuted);
   }, []);
 
-  // Play Custom Sandbox Level
+  // Play Custom Sandbox Level (Jumping Pegs)
   const handlePlayCustomLevel = useCallback(
     (customLevel: LevelData) => {
       setLevelList((prev) => [...prev, customLevel]);
@@ -229,8 +275,10 @@ export default function App() {
     [levelList.length]
   );
 
-  // Global Keyboard Shortcuts
+  // Keyboard shortcuts (Jumping Pegs)
   useEffect(() => {
+    if (activeGame !== 'pegs') return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
@@ -257,8 +305,48 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRestart]);
+  }, [activeGame, handleUndo, handleRestart]);
 
+  // ==========================================================
+  // RENDER VIEW: 1. MASTER PORTAL GAMES HUB
+  // ==========================================================
+  if (activeGame === 'hub') {
+    return (
+      <MasterPortal
+        pegsStars={pegsStars}
+        maxPegsStars={maxPegsStars}
+        bridgeStars={bridgeStars}
+        maxBridgeStars={maxBridgeStars}
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
+        onSelectGame={(game) => {
+          sound.playSelect();
+          setActiveGame(game);
+        }}
+      />
+    );
+  }
+
+  // ==========================================================
+  // RENDER VIEW: 2. GAME 2: MIDNIGHT BRIDGE & TORCH
+  // ==========================================================
+  if (activeGame === 'bridge') {
+    return (
+      <BridgeGame
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
+        onReturnToHub={() => {
+          refreshBridgeProgress();
+          sound.playSelect();
+          setActiveGame('hub');
+        }}
+      />
+    );
+  }
+
+  // ==========================================================
+  // RENDER VIEW: 3. GAME 1: THE JUMPING PEGS 3D
+  // ==========================================================
   return (
     <div className="relative w-screen h-screen bg-[#0a0c10] overflow-hidden select-none font-sans text-slate-100">
       {/* 3D WebGL Canvas Layer */}
@@ -273,6 +361,7 @@ export default function App() {
         levelCameraPos={currentLevel.cameraPos}
         onSelectPeg={setSelectedPegId}
         onExecuteMove={handleExecuteMove}
+        onFocusMove={setFocusedMove}
       />
 
       {/* Screen Mode 1: Main Title Screen (Hero Menu) */}
@@ -285,6 +374,10 @@ export default function App() {
           onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
           onOpenSandbox={() => setIsSandboxOpen(true)}
           onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
+          onReturnToHub={() => {
+            sound.playSelect();
+            setActiveGame('hub');
+          }}
         />
       )}
 
@@ -298,6 +391,7 @@ export default function App() {
           canUndo={history.length > 0 && !isAnimating && !isLevelComplete}
           isMuted={isMuted}
           target={currentLevel.target}
+          focusedMove={focusedMove}
           onUndo={handleUndo}
           onRestart={handleRestart}
           onResetCamera={handleResetCamera}
@@ -320,6 +414,11 @@ export default function App() {
         onReturnToMainMenu={() => {
           setIsDrawerOpen(false);
           setScreenMode('menu');
+        }}
+        onReturnToHub={() => {
+          setIsDrawerOpen(false);
+          sound.playSelect();
+          setActiveGame('hub');
         }}
       />
 

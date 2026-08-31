@@ -7,6 +7,7 @@ import {
   Star,
   Sparkles,
   Award,
+  LayoutGrid,
 } from 'lucide-react';
 import { LevelProgress } from '../types';
 
@@ -18,6 +19,7 @@ interface HeroMenuProps {
   onOpenLevelSelect: () => void;
   onOpenSandbox: () => void;
   onOpenHowToPlay: () => void;
+  onReturnToHub?: () => void;
 }
 
 export const HeroMenu: React.FC<HeroMenuProps> = ({
@@ -28,6 +30,7 @@ export const HeroMenu: React.FC<HeroMenuProps> = ({
   onOpenLevelSelect,
   onOpenSandbox,
   onOpenHowToPlay,
+  onReturnToHub,
 }) => {
   // Compute stars and completed levels
   let totalStars = 0;
@@ -43,9 +46,22 @@ export const HeroMenu: React.FC<HeroMenuProps> = ({
     <div className="absolute inset-0 z-20 flex flex-col justify-between p-6 md:p-12 pointer-events-none select-none">
       {/* Top Header Brand */}
       <header className="w-full flex items-center justify-between pointer-events-auto">
-        <div className="flex items-center gap-2.5 glass-panel px-3.5 py-1.5 rounded-full border border-white/10 text-xs font-semibold text-slate-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Point Reflection Mechanics</span>
+        <div className="flex items-center gap-3">
+          {onReturnToHub && (
+            <button
+              onClick={onReturnToHub}
+              className="glass-panel px-3.5 py-1.5 rounded-full border border-cyan-500/30 text-xs font-bold text-cyan-300 hover:text-white hover:bg-slate-800/80 transition-all flex items-center gap-2 cursor-pointer shadow-lg active:scale-95"
+              title="Return to Master Games Hub"
+            >
+              <LayoutGrid size={14} />
+              <span>Games Hub</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-2.5 glass-panel px-3.5 py-1.5 rounded-full border border-white/10 text-xs font-semibold text-slate-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Point Reflection Mechanics</span>
+          </div>
         </div>
 
         {totalStars > 0 && (

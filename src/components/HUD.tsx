@@ -7,7 +7,7 @@ import {
   Compass,
   Menu,
 } from 'lucide-react';
-import { LevelData, Point2D } from '../types';
+import { LevelData, Point2D, ValidMove } from '../types';
 
 interface HUDProps {
   currentLevel: LevelData;
@@ -17,6 +17,7 @@ interface HUDProps {
   canUndo: boolean;
   isMuted: boolean;
   target: Point2D;
+  focusedMove?: ValidMove | null;
   onUndo: () => void;
   onRestart: () => void;
   onResetCamera: () => void;
@@ -32,6 +33,7 @@ export const HUD: React.FC<HUDProps> = ({
   canUndo,
   isMuted,
   target,
+  focusedMove,
   onUndo,
   onRestart,
   onResetCamera,
@@ -135,8 +137,19 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </header>
 
-      {/* 2. CONSOLIDATED FLOATING BOTTOM DOCK */}
-      <footer className="w-full max-w-xl mx-auto flex items-center justify-center">
+      {/* 2. CONSOLIDATED FLOATING BOTTOM DOCK & MATHEMATICAL TRANSFORMATION STATUS */}
+      <footer className="w-full max-w-xl mx-auto flex flex-col items-center justify-center gap-2">
+        {/* Dynamic 180° Point Reflection Transformation Banner */}
+        {focusedMove && (
+          <div className="pointer-events-auto px-4 py-2 rounded-2xl bg-slate-950/90 border border-cyan-500/40 text-xs text-slate-200 flex flex-wrap items-center justify-center gap-2 shadow-2xl backdrop-blur-xl animate-fade-in">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+            <span className="font-bold text-cyan-300">180° Point Reflection:</span>
+            <span className="font-mono text-amber-300 font-bold tracking-tight">
+              C({focusedMove.dest.x}, {focusedMove.dest.y}) = 2·Pivot({focusedMove.pivot.x}, {focusedMove.pivot.y}) - Peg({focusedMove.from.x}, {focusedMove.from.y})
+            </span>
+          </div>
+        )}
+
         <div className="pointer-events-auto flex items-center gap-2 glass-panel p-2 rounded-full shadow-2xl border border-white/10 backdrop-blur-xl">
           {/* Undo Button */}
           <button

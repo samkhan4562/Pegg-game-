@@ -42,7 +42,7 @@ export const LevelEditorModal: React.FC<LevelEditorModalProps> = ({
 
   const handleStartPlay = () => {
     const customLevel: LevelData = {
-      id: 99,
+      id: Date.now(),
       name: levelName || 'Custom Level',
       difficulty: 'Medium',
       description: 'Custom created puzzle in Sandbox Mode.',

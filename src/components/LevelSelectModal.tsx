@@ -55,7 +55,7 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
 
             return (
               <div
-                key={level.id}
+                key={`level-${level.id}-${idx}`}
                 onClick={() => {
                   if (isUnlocked) {
                     onSelectLevel(idx);

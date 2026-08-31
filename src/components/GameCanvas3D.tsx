@@ -15,6 +15,7 @@ interface GameCanvas3DProps {
   levelCameraPos?: { x: number; y: number; z: number };
   onSelectPeg: (pegId: string | null) => void;
   onExecuteMove: (move: ValidMove) => void;
+  onFocusMove?: (move: ValidMove | null) => void;
 }
 
 interface PegMeshWrapper {
@@ -28,6 +29,43 @@ interface PegMeshWrapper {
   meshMaterials: THREE.MeshStandardMaterial[];
   selectionRing: THREE.Mesh;
   glowAura: THREE.Mesh;
+  labelSprite?: THREE.Sprite;
+  currentLabel?: string;
+}
+
+// Helper to create a crisp high-res floating letter badge for Pegs (A, B, C, D)
+function createPegLabelSprite(text: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 128, 128);
+
+    // Glowing circular backdrop disc
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.beginPath();
+    ctx.arc(64, 64, 52, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.stroke();
+
+    // High contrast letter
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 54px "Fira Code", monospace, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 64, 66);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(0.55, 0.55, 1);
+  sprite.position.y = 1.15;
+  return sprite;
 }
 
 export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
@@ -41,6 +79,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
   levelCameraPos,
   onSelectPeg,
   onExecuteMove,
+  onFocusMove,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -56,8 +95,10 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
   const targetRingsRef = useRef<THREE.Mesh[]>([]);
   const targetBeamRef = useRef<THREE.Mesh | null>(null);
   const guideLinesGroupRef = useRef<THREE.Group | null>(null);
+  const pivotsGroupRef = useRef<THREE.Group | null>(null);
   const landingHolesGroupRef = useRef<THREE.Group | null>(null);
   const landingRingsRef = useRef<{ mesh: THREE.Mesh; move: ValidMove }[]>([]);
+  const focusedMoveRef = useRef<ValidMove | null>(null);
 
   // Ghost Peg Preview Mesh
   const ghostPegGroupRef = useRef<THREE.Group | null>(null);
@@ -97,9 +138,22 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     scene.fog = new THREE.FogExp2(0x0a0c10, 0.022);
 
     // Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    const initialCam = levelCameraPos || { x: 2, y: 11, z: 9 };
-    camera.position.set(initialCam.x, initialCam.y, initialCam.z);
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
+    // Compute initial bounding center
+    const allInitX = [...pegs.map((p) => p.x), target.x];
+    const allInitY = [...pegs.map((p) => p.y), target.y];
+    const initMinX = Math.min(...allInitX);
+    const initMaxX = Math.max(...allInitX);
+    const initMinY = Math.min(...allInitY);
+    const initMaxY = Math.max(...allInitY);
+    const initCenterX = (initMinX + initMaxX) / 2;
+    const initCenterZ = (initMinY + initMaxY) / 2;
+    const initMaxSpan = Math.max(initMaxX - initMinX, initMaxY - initMinY, 3.2);
+
+    const initCamY = Math.max(8.0, initMaxSpan * 1.55 + 3.0);
+    const initCamZ = initCenterZ + Math.max(6.5, initMaxSpan * 1.25 + 2.5);
+
+    camera.position.set(initCenterX, initCamY, initCamZ);
     cameraRef.current = camera;
 
     // Renderer
@@ -123,8 +177,8 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = Math.PI / 2.05; // Prevent going underneath floor
     controls.minDistance = 3.5;
-    controls.maxDistance = 32;
-    controls.target.set(target.x, 0, target.y);
+    controls.maxDistance = 35;
+    controls.target.set(initCenterX, 0, initCenterZ);
     controlsRef.current = controls;
 
     // Lighting
@@ -154,6 +208,10 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     buildLatticeGrid(scene);
 
     // Groups for dynamic elements
+    // Clear any previous references
+    pegWrappersRef.current.clear();
+    landingRingsRef.current = [];
+
     const pegsGroup = new THREE.Group();
     pegsGroupRef.current = pegsGroup;
     scene.add(pegsGroup);
@@ -166,6 +224,10 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     const guideLinesGroup = new THREE.Group();
     guideLinesGroupRef.current = guideLinesGroup;
     scene.add(guideLinesGroup);
+
+    const pivotsGroup = new THREE.Group();
+    pivotsGroupRef.current = pivotsGroup;
+    scene.add(pivotsGroup);
 
     const landingHolesGroup = new THREE.Group();
     landingHolesGroupRef.current = landingHolesGroup;
@@ -320,6 +382,8 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      pegWrappersRef.current.clear();
+      landingRingsRef.current = [];
     };
   }, []);
 
@@ -500,7 +564,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     // Remove obsolete pegs
     pegWrappersRef.current.forEach((wrapper, id) => {
       if (!currentIds.has(id)) {
-        group.remove(wrapper.group);
+        if (wrapper.group.parent) wrapper.group.parent.remove(wrapper.group);
         pegWrappersRef.current.delete(id);
       }
     });
@@ -508,6 +572,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     // Create or update pegs
     pegs.forEach((pegData) => {
       let wrapper = pegWrappersRef.current.get(pegData.id);
+      const pegLabel = pegData.label || pegData.id.replace('p', '');
 
       if (!wrapper) {
         // Create new Peg Group
@@ -583,6 +648,10 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
         glowAura.position.y = 0.004;
         pegGroup.add(glowAura);
 
+        // Floating Letter Badge (A, B, C, D)
+        const labelSprite = createPegLabelSprite(pegLabel);
+        pegGroup.add(labelSprite);
+
         // Invisible Raycast Hit Box
         const hitGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 16);
         const hitMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -605,11 +674,28 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
           meshMaterials: mats,
           selectionRing,
           glowAura,
+          labelSprite,
+          currentLabel: pegLabel,
         };
 
         pegWrappersRef.current.set(pegData.id, wrapper);
       } else {
-        // Update position if not currently in animation
+        // Ensure wrapper is in current active group
+        if (wrapper.group.parent !== group) {
+          if (wrapper.group.parent) wrapper.group.parent.remove(wrapper.group);
+          group.add(wrapper.group);
+        }
+
+        // Update label sprite if changed
+        if (wrapper.currentLabel !== pegLabel) {
+          if (wrapper.labelSprite) wrapper.group.remove(wrapper.labelSprite);
+          const newSprite = createPegLabelSprite(pegLabel);
+          wrapper.group.add(newSprite);
+          wrapper.labelSprite = newSprite;
+          wrapper.currentLabel = pegLabel;
+        }
+
+        // Update position if not currently in flight animation
         if (!activeAnimationRef.current || activeAnimationRef.current.pegId !== pegData.id) {
           wrapper.group.position.set(pegData.x, wrapper.currentY, pegData.y);
         }
@@ -642,13 +728,20 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     });
   }, [pegs, selectedPegId]);
 
-  // 8. Build Aiming Trajectory Arcs & Landing Target Rings
-  useEffect(() => {
-    if (!guideLinesGroupRef.current || !landingHolesGroupRef.current) return;
+  // 8. Build Aiming Trajectory Arc & Landing Target Rings (Single 180° Point-Reflection Trajectory)
+  const renderAimingTrajectory = React.useCallback(() => {
+    if (
+      !guideLinesGroupRef.current ||
+      !landingHolesGroupRef.current ||
+      !pivotsGroupRef.current
+    )
+      return;
+
     const guideGroup = guideLinesGroupRef.current;
     const landingGroup = landingHolesGroupRef.current;
+    const pivotsGroup = pivotsGroupRef.current;
 
-    // Clear old guides & landing rings
+    // Clear old guides, pivots & landing rings
     while (guideGroup.children.length > 0) {
       const obj = guideGroup.children[0];
       guideGroup.remove(obj);
@@ -657,87 +750,131 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       const obj = landingGroup.children[0];
       landingGroup.remove(obj);
     }
+    while (pivotsGroup.children.length > 0) {
+      const obj = pivotsGroup.children[0];
+      pivotsGroup.remove(obj);
+    }
     landingRingsRef.current = [];
 
-    // Hide ghost preview when no selection
-    if (ghostPegGroupRef.current) {
-      ghostPegGroupRef.current.visible = false;
+    // Hide ghost preview when no selection or moves
+    if (!selectedPegId || validMoves.length === 0) {
+      if (ghostPegGroupRef.current) {
+        ghostPegGroupRef.current.visible = false;
+      }
+      focusedMoveRef.current = null;
+      onFocusMove?.(null);
+      return;
     }
 
-    if (!selectedPegId || validMoves.length === 0) return;
-
     const selectedPeg = pegs.find((p) => p.id === selectedPegId);
-    if (!selectedPeg) return;
+    if (!selectedPeg) {
+      focusedMoveRef.current = null;
+      onFocusMove?.(null);
+      return;
+    }
 
-    validMoves.forEach((move) => {
-      // 1. Ground Projection Dashed Line (Start -> Pivot -> Dest)
-      const groundPoints = [
-        new THREE.Vector3(move.from.x, 0.02, move.from.y),
-        new THREE.Vector3(move.pivot.x, 0.02, move.pivot.y),
-        new THREE.Vector3(move.dest.x, 0.02, move.dest.y),
-      ];
-      const groundGeo = new THREE.BufferGeometry().setFromPoints(groundPoints);
-      const groundMat = new THREE.LineDashedMaterial({
-        color: 0xf59e0b,
-        dashSize: 0.2,
-        gapSize: 0.15,
-        linewidth: 2,
-        transparent: true,
-        opacity: 0.65,
-      });
-      const groundLine = new THREE.Line(groundGeo, groundMat);
-      groundLine.computeLineDistances();
-      guideGroup.add(groundLine);
-
-      // 2. Parabolic 3D Bezier Curve
-      const apexHeight = Math.min(3.8, Math.max(1.3, move.distance * 0.55));
-      const curve = new THREE.QuadraticBezierCurve3(
-        new THREE.Vector3(move.from.x, 0.6, move.from.y),
-        new THREE.Vector3(move.pivot.x, 0.6 + apexHeight, move.pivot.y),
-        new THREE.Vector3(move.dest.x, 0.6, move.dest.y)
+    // Determine the single active / focused move
+    let activeMove: ValidMove = validMoves[0];
+    if (hoveredMoveDestRef.current) {
+      const destMove = validMoves.find(
+        (m) =>
+          m.dest.x === hoveredMoveDestRef.current?.x &&
+          m.dest.y === hoveredMoveDestRef.current?.y
       );
+      if (destMove) activeMove = destMove;
+    } else if (hoveredPegIdRef.current) {
+      const pivotMove = validMoves.find(
+        (m) => m.pivotId === hoveredPegIdRef.current
+      );
+      if (pivotMove) activeMove = pivotMove;
+    } else if (focusedMoveRef.current) {
+      const existing = validMoves.find(
+        (m) =>
+          m.pivotId === focusedMoveRef.current?.pivotId &&
+          m.dest.x === focusedMoveRef.current?.dest.x &&
+          m.dest.y === focusedMoveRef.current?.dest.y
+      );
+      if (existing) activeMove = existing;
+    }
 
-      const curvePoints = curve.getPoints(36);
-      const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-      const curveMat = new THREE.LineDashedMaterial({
-        color: 0xfbbf24,
-        dashSize: 0.25,
-        gapSize: 0.12,
-        linewidth: 3,
+    focusedMoveRef.current = activeMove;
+    onFocusMove?.(activeMove);
+
+    // 1. Render Distinct Pivot Markers for all valid pivots
+    const renderedPivots = new Set<string>();
+    validMoves.forEach((move) => {
+      if (renderedPivots.has(move.pivotId)) return;
+      renderedPivots.add(move.pivotId);
+
+      const isCurrentPivot = activeMove.pivotId === move.pivotId;
+
+      const pivotGroupItem = new THREE.Group();
+      pivotGroupItem.position.set(move.pivot.x, 0.02, move.pivot.y);
+
+      // Cyan Pivot Ring around the pivot peg
+      const pRingGeo = new THREE.RingGeometry(0.32, isCurrentPivot ? 0.48 : 0.42, 32);
+      const pRingMat = new THREE.MeshBasicMaterial({
+        color: isCurrentPivot ? 0x06b6d4 : 0x0ea5e9,
+        side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.85,
+        opacity: isCurrentPivot ? 0.95 : 0.45,
       });
-      const arcLine = new THREE.Line(curveGeo, curveMat);
-      arcLine.computeLineDistances();
-      guideGroup.add(arcLine);
+      const pRingMesh = new THREE.Mesh(pRingGeo, pRingMat);
+      pRingMesh.rotation.x = -Math.PI / 2;
+      pivotGroupItem.add(pRingMesh);
 
-      // 3. Pulsing Golden Landing Target Ring
+      // Outer ripple for active pivot
+      if (isCurrentPivot) {
+        const outerGeo = new THREE.RingGeometry(0.52, 0.60, 32);
+        const outerMat = new THREE.MeshBasicMaterial({
+          color: 0x22d3ee,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.55,
+        });
+        const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+        outerMesh.rotation.x = -Math.PI / 2;
+        pivotGroupItem.add(outerMesh);
+      }
+
+      pivotsGroup.add(pivotGroupItem);
+    });
+
+    // 2. Render Landing Target Rings for ALL valid moves (active move highlighted)
+    validMoves.forEach((move) => {
+      const isCurrentMove =
+        move.pivotId === activeMove.pivotId &&
+        move.dest.x === activeMove.dest.x &&
+        move.dest.y === activeMove.dest.y;
+
       const landingGroupItem = new THREE.Group();
       landingGroupItem.position.set(move.dest.x, 0.015, move.dest.y);
 
       // Inner ring
-      const ringGeo = new THREE.RingGeometry(0.22, 0.36, 32);
+      const ringGeo = new THREE.RingGeometry(0.22, 0.38, 32);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xf59e0b,
+        color: isCurrentMove ? 0xf59e0b : 0xd97706,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.85,
+        opacity: isCurrentMove ? 0.95 : 0.6,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = -Math.PI / 2;
       landingGroupItem.add(ringMesh);
 
-      // Outer ripple
-      const outerRingGeo = new THREE.RingGeometry(0.42, 0.52, 32);
-      const outerRingMat = new THREE.MeshBasicMaterial({
-        color: 0xfbbf24,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.4,
-      });
-      const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
-      outerRingMesh.rotation.x = -Math.PI / 2;
-      landingGroupItem.add(outerRingMesh);
+      // Outer ripple ring for active move
+      if (isCurrentMove) {
+        const outerRingGeo = new THREE.RingGeometry(0.44, 0.56, 32);
+        const outerRingMat = new THREE.MeshBasicMaterial({
+          color: 0xfbbf24,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.65,
+        });
+        const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
+        outerRingMesh.rotation.x = -Math.PI / 2;
+        landingGroupItem.add(outerRingMesh);
+      }
 
       // Clickable Hit Disc for Landing Ring
       const hitDiscGeo = new THREE.CircleGeometry(0.65, 24);
@@ -751,27 +888,103 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
 
       landingRingsRef.current.push({
         mesh: ringMesh,
-        move,
+        move: move,
       });
     });
-  }, [selectedPegId, validMoves, pegs]);
 
-  // 9. Handle Camera Reset / Transition
+    // 3. Render SINGLE Focused 180° Point-Reflection Trajectory Curve and Ground Line
+    // Ground Projection Dashed Line (Start -> Pivot -> Dest)
+    const groundPoints = [
+      new THREE.Vector3(activeMove.from.x, 0.02, activeMove.from.y),
+      new THREE.Vector3(activeMove.pivot.x, 0.02, activeMove.pivot.y),
+      new THREE.Vector3(activeMove.dest.x, 0.02, activeMove.dest.y),
+    ];
+    const groundGeo = new THREE.BufferGeometry().setFromPoints(groundPoints);
+    const groundMat = new THREE.LineDashedMaterial({
+      color: 0x06b6d4,
+      dashSize: 0.2,
+      gapSize: 0.12,
+      linewidth: 2.5,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const groundLine = new THREE.Line(groundGeo, groundMat);
+    groundLine.computeLineDistances();
+    guideGroup.add(groundLine);
+
+    // Parabolic 3D Bezier Curve
+    const apexHeight = Math.min(3.8, Math.max(1.3, activeMove.distance * 0.55));
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(activeMove.from.x, 0.6, activeMove.from.y),
+      new THREE.Vector3(activeMove.pivot.x, 0.6 + apexHeight, activeMove.pivot.y),
+      new THREE.Vector3(activeMove.dest.x, 0.6, activeMove.dest.y)
+    );
+
+    const curvePoints = curve.getPoints(36);
+    const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
+    const curveMat = new THREE.LineDashedMaterial({
+      color: 0xfbbf24,
+      dashSize: 0.25,
+      gapSize: 0.1,
+      linewidth: 3.5,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const arcLine = new THREE.Line(curveGeo, curveMat);
+    arcLine.computeLineDistances();
+    guideGroup.add(arcLine);
+
+    // Position Ghost Peg at destination
+    if (ghostPegGroupRef.current) {
+      ghostPegGroupRef.current.position.set(
+        activeMove.dest.x,
+        0.05,
+        activeMove.dest.y
+      );
+      ghostPegGroupRef.current.visible = true;
+    }
+  }, [selectedPegId, validMoves, pegs, onFocusMove]);
+
+  useEffect(() => {
+    renderAimingTrajectory();
+  }, [renderAimingTrajectory]);
+
+  // 9. Handle Camera Reset / Auto-Framing Transition
   useEffect(() => {
     if (!cameraRef.current || !controlsRef.current) return;
-    const targetCam = levelCameraPos || { x: 2, y: 11, z: 9 };
     const cam = cameraRef.current;
     const controls = controlsRef.current;
 
-    // Smooth transition
+    // Reset active animation state on level load / reset
+    activeAnimationRef.current = null;
+
+    // Calculate dynamic bounding box of all pegs and target
+    const allX = [...pegs.map((p) => p.x), target.x];
+    const allY = [...pegs.map((p) => p.y), target.y];
+    const minX = Math.min(...allX);
+    const maxX = Math.max(...allX);
+    const minY = Math.min(...allY);
+    const maxY = Math.max(...allY);
+
+    const centerX = (minX + maxX) / 2;
+    const centerZ = (minY + maxY) / 2;
+    const spanX = maxX - minX;
+    const spanZ = maxY - minY;
+    const maxSpan = Math.max(spanX, spanZ, 3.2);
+
+    const targetCamY = Math.max(8.0, maxSpan * 1.55 + 3.0);
+    const targetCamZ = centerZ + Math.max(6.5, maxSpan * 1.25 + 2.5);
+    const targetCamX = centerX;
+
     const startPos = cam.position.clone();
-    const endPos = new THREE.Vector3(targetCam.x, targetCam.y, targetCam.z);
+    const endPos = new THREE.Vector3(targetCamX, targetCamY, targetCamZ);
     const startTarget = controls.target.clone();
-    const endTarget = new THREE.Vector3(target.x, 0, target.y);
+    const endTarget = new THREE.Vector3(centerX, 0, centerZ);
 
     const startTime = performance.now();
-    const duration = 650;
+    const duration = 600;
 
+    let animId: number;
     const easeCamera = () => {
       const now = performance.now();
       const progress = Math.min(1.0, (now - startTime) / duration);
@@ -782,12 +995,16 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       controls.update();
 
       if (progress < 1.0) {
-        requestAnimationFrame(easeCamera);
+        animId = requestAnimationFrame(easeCamera);
       }
     };
 
     easeCamera();
-  }, [cameraResetTrigger, levelCameraPos, target]);
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [cameraResetTrigger, pegs, target]);
 
   // 10. Pointer Event Handlers (Click & Hover)
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -839,8 +1056,11 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
       }
     }
 
+    let stateChanged = false;
+
     if (foundPegId !== hoveredPegIdRef.current) {
       hoveredPegIdRef.current = foundPegId;
+      stateChanged = true;
       if (foundPegId) {
         sound.playHover();
         containerRef.current.style.cursor = 'pointer';
@@ -857,19 +1077,14 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
 
     if (foundDest !== hoveredMoveDestRef.current) {
       hoveredMoveDestRef.current = foundDest;
+      stateChanged = true;
       if (foundDest) {
         containerRef.current.style.cursor = 'pointer';
-        // Show Ghost Peg at Destination
-        if (ghostPegGroupRef.current) {
-          ghostPegGroupRef.current.position.set(foundDest.x, 0.05, foundDest.y);
-          ghostPegGroupRef.current.visible = true;
-        }
-      } else {
-        // Hide Ghost Peg
-        if (ghostPegGroupRef.current) {
-          ghostPegGroupRef.current.visible = false;
-        }
       }
+    }
+
+    if (stateChanged && selectedPegId && validMoves.length > 0) {
+      renderAimingTrajectory();
     }
   };
 

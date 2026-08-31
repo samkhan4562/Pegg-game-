@@ -25,6 +25,7 @@ interface SlideDrawerProps {
   onOpenSandbox: () => void;
   onOpenHowToPlay: () => void;
   onReturnToMainMenu: () => void;
+  onReturnToHub?: () => void;
 }
 
 export const SlideDrawer: React.FC<SlideDrawerProps> = ({
@@ -38,6 +39,7 @@ export const SlideDrawer: React.FC<SlideDrawerProps> = ({
   onOpenSandbox,
   onOpenHowToPlay,
   onReturnToMainMenu,
+  onReturnToHub,
 }) => {
   if (!isOpen) return null;
 
@@ -124,7 +126,7 @@ export const SlideDrawer: React.FC<SlideDrawerProps> = ({
                 </div>
                 <div className="text-left">
                   <div className="text-sm font-semibold">Level Catalog</div>
-                  <div className="text-[11px] text-slate-400">Chapters 1 to 4 (15 Levels)</div>
+                  <div className="text-[11px] text-slate-400">Chapters 1 to 4 ({totalLevels} Levels)</div>
                 </div>
               </div>
               <ChevronRight size={18} className="text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" />
@@ -206,18 +208,32 @@ export const SlideDrawer: React.FC<SlideDrawerProps> = ({
         </div>
 
         {/* Drawer Bottom Actions */}
-        <div className="pt-4 border-t border-slate-800/80">
+        <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2">
           <button
             id="drawer-return-home-btn"
             onClick={() => {
               onClose();
               onReturnToMainMenu();
             }}
-            className="w-full py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 flex items-center justify-center gap-2 text-sm font-semibold transition-all cursor-pointer shadow-lg"
+            className="w-full py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 flex items-center justify-center gap-2 text-xs font-semibold transition-all cursor-pointer shadow-lg"
           >
             <Home size={16} className="text-amber-400" />
             <span>Return to Title Screen</span>
           </button>
+
+          {onReturnToHub && (
+            <button
+              id="drawer-return-hub-btn"
+              onClick={() => {
+                onClose();
+                onReturnToHub();
+              }}
+              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 hover:from-cyan-500/20 hover:to-blue-500/20 text-cyan-300 hover:text-white border border-cyan-500/30 flex items-center justify-center gap-2 text-xs font-bold transition-all cursor-pointer shadow-lg"
+            >
+              <span>Games Hub (Master Portal)</span>
+              <ChevronRight size={16} />
+            </button>
+          )}
         </div>
       </div>
     </div>
