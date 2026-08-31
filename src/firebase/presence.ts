@@ -1,3 +1,17 @@
+import {
+  ref,
+  set,
+  get,
+  update,
+  remove,
+  push,
+  onValue,
+  onDisconnect,
+  DatabaseReference,
+  Unsubscribe,
+} from 'firebase/database';
+import { rtdb } from './config';
+
 export interface UserPresence {
   uid: string;
   name: string;
@@ -52,7 +66,7 @@ export function getLocalProfile(): { name: string; avatar: string } {
   } catch {
     // Ignore error
   }
-  const defaultNames = ['Player', 'Player_Ace', 'CyberPlayer', 'Gamer'];
+  const defaultNames = ['AxiomPro', 'LogicMaster', 'QuantumPawn', 'NexusGamer', 'CyberPilot'];
   const randomName = defaultNames[Math.floor(Math.random() * defaultNames.length)] + '_' + Math.floor(100 + Math.random() * 900);
   const randomAvatar = AVATAR_OPTIONS[Math.floor(Math.random() * AVATAR_OPTIONS.length)];
   const profile = { name: randomName, avatar: randomAvatar };
@@ -64,121 +78,64 @@ export function saveLocalProfile(name: string, avatar: string) {
   localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify({ name, avatar }));
 }
 
-// ==========================================================
-// SSE EVENT STREAM CLIENT
-// ==========================================================
-
-let sseEventSource: EventSource | null = null;
-let currentSseUid: string | null = null;
-const friendReqCallbacks = new Set<(reqs: FriendRequest[]) => void>();
-const inviteCallbacks = new Set<(invites: GameInvite[]) => void>();
-const presenceCallbacks = new Set<(players: UserPresence[]) => void>();
-const friendsListCallbacks = new Set<(friends: FriendEntry[]) => void>();
-
-function getEventSource(uid: string): EventSource {
-  if (sseEventSource && currentSseUid === uid) {
-    return sseEventSource;
-  }
-  if (sseEventSource) {
-    sseEventSource.close();
-  }
-
-  currentSseUid = uid;
-  const es = new EventSource(`/api/events?uid=${encodeURIComponent(uid)}`);
-  sseEventSource = es;
-
-  es.addEventListener('friend_request', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      // Fetch latest requests
-      fetch(`/api/friends/requests/${encodeURIComponent(uid)}`)
-        .then((res) => res.json())
-        .then((reqs) => {
-          friendReqCallbacks.forEach((cb) => cb(reqs));
-        })
-        .catch(() => {});
-    } catch {
-      // ignore
-    }
-  });
-
-  es.addEventListener('game_invite', (e) => {
-    try {
-      const invite = JSON.parse(e.data);
-      inviteCallbacks.forEach((cb) => cb([invite]));
-    } catch {
-      // ignore
-    }
-  });
-
-  es.addEventListener('presence', (e) => {
-    try {
-      const players = JSON.parse(e.data);
-      presenceCallbacks.forEach((cb) => cb(players));
-    } catch {
-      // ignore
-    }
-  });
-
-  es.addEventListener('friend_accepted', () => {
-    fetch(`/api/friends/list/${encodeURIComponent(uid)}`)
-      .then((res) => res.json())
-      .then((list) => {
-        friendsListCallbacks.forEach((cb) => cb(list));
-      })
-      .catch(() => {});
-  });
-
-  return es;
-}
-
 /**
- * Sets up online presence listeners with Real-Time Server
+ * Setup Real-time Presence using Firebase Realtime Database
  */
 export function setupPresence(
   uid: string,
   name: string,
   avatar: string,
   currentGame = 'Arcade Hub'
-) {
-  getEventSource(uid);
+): () => void {
+  try {
+    const userRef = ref(rtdb, `presence/${uid}`);
+    const connectedRef = ref(rtdb, '.info/connected');
 
-  // Send initial heartbeat
-  const sendHeartbeat = () => {
-    fetch('/api/presence/heartbeat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        uid,
+    const unsubscribe = onValue(connectedRef, (snap) => {
+      if (snap.val() === true) {
+        onDisconnect(userRef)
+          .update({
+            status: 'offline',
+            lastSeen: Date.now(),
+          })
+          .catch(() => {});
+
+        set(userRef, {
+          uid,
+          name,
+          avatar,
+          status: currentGame === 'Arcade Hub' ? 'online' : 'in-game',
+          currentGame,
+          lastSeen: Date.now(),
+        }).catch((err) => {
+          console.warn('Presence set error:', err);
+        });
+      }
+    });
+
+    // Heartbeat every 15 seconds
+    const interval = setInterval(() => {
+      update(userRef, {
+        lastSeen: Date.now(),
         name,
         avatar,
-        currentGame,
         status: currentGame === 'Arcade Hub' ? 'online' : 'in-game',
-      }),
-    }).catch(() => {});
-  };
+        currentGame,
+      }).catch(() => {});
+    }, 15000);
 
-  sendHeartbeat();
-  const interval = setInterval(sendHeartbeat, 10000);
-
-  const handleUnload = () => {
-    navigator.sendBeacon(
-      '/api/presence/disconnect',
-      JSON.stringify({ uid })
-    );
-  };
-
-  window.addEventListener('beforeunload', handleUnload);
-
-  return () => {
-    clearInterval(interval);
-    window.removeEventListener('beforeunload', handleUnload);
-    fetch('/api/presence/disconnect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid }),
-    }).catch(() => {});
-  };
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+      update(userRef, {
+        status: 'offline',
+        lastSeen: Date.now(),
+      }).catch(() => {});
+    };
+  } catch (err) {
+    console.warn('setupPresence init error:', err);
+    return () => {};
+  }
 }
 
 /**
@@ -186,43 +143,51 @@ export function setupPresence(
  */
 export function updateGameActivity(uid: string, currentGame: string) {
   const profile = getLocalProfile();
-  fetch('/api/presence/heartbeat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      uid,
+  try {
+    const userRef = ref(rtdb, `presence/${uid}`);
+    update(userRef, {
       name: profile.name,
       avatar: profile.avatar,
       currentGame,
       status: currentGame === 'Arcade Hub' ? 'online' : 'in-game',
-    }),
-  }).catch(() => {});
+      lastSeen: Date.now(),
+    }).catch(() => {});
+  } catch (err) {
+    console.warn('updateGameActivity error:', err);
+  }
 }
 
 /**
- * Listen to all real active online players (ZERO dummy/stale players)
+ * Listen to all REAL active online players (ZERO dummy/mock players)
  */
-export function listenToAllPlayers(callback: (players: UserPresence[]) => void) {
-  presenceCallbacks.add(callback);
-
-  const fetchPlayers = () => {
-    fetch('/api/presence/players')
-      .then((res) => res.json())
-      .then((data: UserPresence[]) => {
-        if (Array.isArray(data)) {
-          callback(data);
+export function listenToAllPlayers(callback: (players: UserPresence[]) => void): Unsubscribe {
+  try {
+    const presenceRef = ref(rtdb, 'presence');
+    return onValue(
+      presenceRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          callback([]);
+          return;
         }
-      })
-      .catch(() => {});
-  };
 
-  fetchPlayers();
-  const timer = setInterval(fetchPlayers, 4000);
+        const now = Date.now();
+        const playersList: UserPresence[] = Object.values(data as Record<string, UserPresence>).filter(
+          (p) => p && p.uid && p.status !== 'offline' && now - (p.lastSeen || 0) < 45000
+        );
 
-  return () => {
-    presenceCallbacks.delete(callback);
-    clearInterval(timer);
-  };
+        callback(playersList);
+      },
+      (error) => {
+        console.warn('listenToAllPlayers error:', error);
+        callback([]);
+      }
+    );
+  } catch (err) {
+    console.warn('listenToAllPlayers setup error:', err);
+    return () => {};
+  }
 }
 
 // ==========================================================
@@ -249,41 +214,56 @@ export function saveLocalFriends(uids: string[]) {
 }
 
 /**
- * Send real-time Friend Request - 100% reliable server API
+ * Send real-time Friend Request directly via Firebase Realtime Database
  */
 export async function sendRealtimeFriendRequest(
   fromUid: string,
   fromName: string,
   fromAvatar: string,
   targetUid: string
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; isPermissionDenied?: boolean }> {
   const cleanTarget = targetUid.trim();
   const cleanFrom = fromUid.trim();
+
+  if (!cleanTarget) {
+    return { success: false, message: 'Please enter a valid Gamer ID.' };
+  }
 
   if (cleanFrom === cleanTarget) {
     return { success: false, message: 'You cannot send a friend request to yourself.' };
   }
 
   try {
-    const res = await fetch('/api/friends/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fromUid: cleanFrom,
-        fromName,
-        fromAvatar,
-        targetUid: cleanTarget,
-      }),
-    });
+    // Generate request ID
+    const reqRef = push(ref(rtdb, `friendRequests/${cleanTarget}`));
+    const reqId = reqRef.key || `freq_${Date.now()}`;
 
-    const data = await res.json();
-    if (res.ok && data.success) {
-      return { success: true, message: data.message || `Friend request sent to ${cleanTarget}!` };
-    } else {
-      return { success: false, message: data.message || 'Failed to send friend request.' };
-    }
+    const friendReq: FriendRequest = {
+      id: reqId,
+      fromUid: cleanFrom,
+      fromName: fromName || 'Player',
+      fromAvatar: fromAvatar || '👾',
+      targetUid: cleanTarget,
+      timestamp: Date.now(),
+      status: 'pending',
+    };
+
+    await set(ref(rtdb, `friendRequests/${cleanTarget}/${reqId}`), friendReq);
+
+    return {
+      success: true,
+      message: `Friend request sent to ${cleanTarget}! They will receive an instant notification.`,
+    };
   } catch (err: any) {
-    return { success: false, message: 'Connection error: ' + (err.message || 'Server unreachable') };
+    console.error('sendRealtimeFriendRequest error:', err);
+    const isPerm = err?.message?.includes('PERMISSION_DENIED') || err?.code === 'PERMISSION_DENIED';
+    return {
+      success: false,
+      isPermissionDenied: isPerm,
+      message: isPerm
+        ? 'Firebase Realtime Database Permission Denied. Follow the 1-minute setup guide below to enable Database Rules in Firebase Console.'
+        : `Failed to send request: ${err?.message || 'Unknown network error'}`,
+    };
   }
 }
 
@@ -293,28 +273,33 @@ export async function sendRealtimeFriendRequest(
 export function listenToIncomingFriendRequests(
   myUid: string,
   callback: (requests: FriendRequest[]) => void
-) {
-  friendReqCallbacks.add(callback);
-  getEventSource(myUid);
-
-  const fetchRequests = () => {
-    fetch(`/api/friends/requests/${encodeURIComponent(myUid)}`)
-      .then((res) => res.json())
-      .then((data: FriendRequest[]) => {
-        if (Array.isArray(data)) {
-          callback(data);
+): Unsubscribe {
+  try {
+    const requestsRef = ref(rtdb, `friendRequests/${myUid}`);
+    return onValue(
+      requestsRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          callback([]);
+          return;
         }
-      })
-      .catch(() => {});
-  };
 
-  fetchRequests();
-  const timer = setInterval(fetchRequests, 3000);
+        const requests: FriendRequest[] = Object.values(data as Record<string, FriendRequest>).filter(
+          (r) => r && r.status === 'pending'
+        );
 
-  return () => {
-    friendReqCallbacks.delete(callback);
-    clearInterval(timer);
-  };
+        callback(requests);
+      },
+      (error) => {
+        console.warn('listenToIncomingFriendRequests error:', error);
+        callback([]);
+      }
+    );
+  } catch (err) {
+    console.warn('listenToIncomingFriendRequests setup error:', err);
+    return () => {};
+  }
 }
 
 /**
@@ -328,74 +313,84 @@ export async function respondToFriendRequest(
   accept: boolean
 ) {
   try {
-    const res = await fetch('/api/friends/respond', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestId: request.id,
-        myUid,
-        myName,
-        myAvatar,
-        accept,
-      }),
-    });
-
     if (accept) {
+      // 1. Add to my friends list
+      await set(ref(rtdb, `userFriends/${myUid}/${request.fromUid}`), {
+        uid: request.fromUid,
+        name: request.fromName,
+        avatar: request.fromAvatar,
+        addedAt: Date.now(),
+      });
+
+      // 2. Add to sender's friends list
+      await set(ref(rtdb, `userFriends/${request.fromUid}/${myUid}`), {
+        uid: myUid,
+        name: myName,
+        avatar: myAvatar,
+        addedAt: Date.now(),
+      });
+
+      // Cache locally
       const current = getLocalFriends();
       if (!current.includes(request.fromUid)) {
         saveLocalFriends([...current, request.fromUid]);
       }
     }
-    return await res.json();
+
+    // 3. Remove the request
+    await remove(ref(rtdb, `friendRequests/${myUid}/${request.id}`));
   } catch (err) {
-    console.error('Error responding to request:', err);
+    console.error('respondToFriendRequest error:', err);
   }
 }
 
 /**
- * Listen to User's Global Friends (Real friends only)
+ * Listen to User's Global Friends
  */
 export function listenToUserFriends(
   myUid: string,
   callback: (friends: FriendEntry[]) => void
-) {
-  friendsListCallbacks.add(callback);
-
-  const fetchFriends = () => {
-    fetch(`/api/friends/list/${encodeURIComponent(myUid)}`)
-      .then((res) => res.json())
-      .then((list: FriendEntry[]) => {
-        if (Array.isArray(list)) {
-          saveLocalFriends(list.map((f) => f.uid));
-          callback(list);
+): Unsubscribe {
+  try {
+    const friendsRef = ref(rtdb, `userFriends/${myUid}`);
+    return onValue(
+      friendsRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          callback([]);
+          return;
         }
-      })
-      .catch(() => {});
-  };
 
-  fetchFriends();
-  const timer = setInterval(fetchFriends, 4000);
+        const list: FriendEntry[] = Object.values(data as Record<string, FriendEntry>).filter(
+          (f) => f && f.uid
+        );
 
-  return () => {
-    friendsListCallbacks.delete(callback);
-    clearInterval(timer);
-  };
+        saveLocalFriends(list.map((f) => f.uid));
+        callback(list);
+      },
+      (error) => {
+        console.warn('listenToUserFriends error:', error);
+        callback([]);
+      }
+    );
+  } catch (err) {
+    console.warn('listenToUserFriends setup error:', err);
+    return () => {};
+  }
 }
 
 /**
- * Remove / Unfriend
+ * Remove / Unfriend Globally
  */
 export async function removeFriendGlobally(myUid: string, friendUid: string) {
   try {
-    await fetch('/api/friends/remove', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ myUid, friendUid }),
-    });
+    await remove(ref(rtdb, `userFriends/${myUid}/${friendUid}`));
+    await remove(ref(rtdb, `userFriends/${friendUid}/${myUid}`));
     const current = getLocalFriends().filter((id) => id !== friendUid);
     saveLocalFriends(current);
   } catch (err) {
-    console.error('Error removing friend:', err);
+    console.error('removeFriendGlobally error:', err);
   }
 }
 
@@ -409,20 +404,31 @@ export async function removeFriendGlobally(myUid: string, friendUid: string) {
 export async function sendGameInvite(
   targetUid: string,
   invite: Omit<GameInvite, 'id' | 'timestamp' | 'status'>
-) {
+): Promise<{ success: boolean; inviteId?: string; isPermissionDenied?: boolean; message?: string }> {
   try {
-    const res = await fetch('/api/invites/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetUid,
-        ...invite,
-      }),
-    });
-    const data = await res.json();
-    return data.inviteId;
-  } catch (err) {
-    console.error('Error sending invite:', err);
+    const invitesRef = ref(rtdb, `gameInvites/${targetUid}`);
+    const newInvRef = push(invitesRef);
+    const inviteId = newInvRef.key || `inv_${Date.now()}`;
+
+    const newInvite: GameInvite = {
+      ...invite,
+      id: inviteId,
+      timestamp: Date.now(),
+      status: 'pending',
+    };
+
+    await set(ref(rtdb, `gameInvites/${targetUid}/${inviteId}`), newInvite);
+    return { success: true, inviteId };
+  } catch (err: any) {
+    console.error('sendGameInvite error:', err);
+    const isPerm = err?.message?.includes('PERMISSION_DENIED') || err?.code === 'PERMISSION_DENIED';
+    return {
+      success: false,
+      isPermissionDenied: isPerm,
+      message: isPerm
+        ? 'Firebase Realtime Database Permission Denied. Follow setup guide to enable rules in Firebase Console.'
+        : `Failed to send invite: ${err?.message || 'Error'}`,
+    };
   }
 }
 
@@ -432,30 +438,34 @@ export async function sendGameInvite(
 export function listenForIncomingInvites(
   myUid: string,
   callback: (invites: GameInvite[]) => void
-) {
-  inviteCallbacks.add(callback);
-  getEventSource(myUid);
-
-  const fetchInvites = () => {
-    fetch(`/api/invites/pending/${encodeURIComponent(myUid)}`)
-      .then((res) => res.json())
-      .then((data: GameInvite[]) => {
-        if (Array.isArray(data)) {
-          const now = Date.now();
-          const active = data.filter((i) => i.status === 'pending' && now - (i.timestamp || now) < 180000);
-          callback(active);
+): Unsubscribe {
+  try {
+    const invitesRef = ref(rtdb, `gameInvites/${myUid}`);
+    return onValue(
+      invitesRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          callback([]);
+          return;
         }
-      })
-      .catch(() => {});
-  };
 
-  fetchInvites();
-  const timer = setInterval(fetchInvites, 3000);
+        const now = Date.now();
+        const active: GameInvite[] = Object.values(data as Record<string, GameInvite>).filter(
+          (inv) => inv && inv.status === 'pending' && now - (inv.timestamp || now) < 180000
+        );
 
-  return () => {
-    inviteCallbacks.delete(callback);
-    clearInterval(timer);
-  };
+        callback(active);
+      },
+      (error) => {
+        console.warn('listenForIncomingInvites error:', error);
+        callback([]);
+      }
+    );
+  } catch (err) {
+    console.warn('listenForIncomingInvites setup error:', err);
+    return () => {};
+  }
 }
 
 /**
@@ -467,16 +477,12 @@ export async function respondToInvite(
   status: 'accepted' | 'declined'
 ) {
   try {
-    await fetch('/api/invites/respond', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        myUid,
-        inviteId,
-        accept: status === 'accepted',
-      }),
-    });
+    if (status === 'accepted') {
+      await update(ref(rtdb, `gameInvites/${myUid}/${inviteId}`), { status: 'accepted' });
+    } else {
+      await remove(ref(rtdb, `gameInvites/${myUid}/${inviteId}`));
+    }
   } catch (err) {
-    console.error('Error responding to invite:', err);
+    console.error('respondToInvite error:', err);
   }
 }

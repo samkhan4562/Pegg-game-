@@ -1,3 +1,13 @@
+import {
+  ref,
+  set,
+  get,
+  update,
+  remove,
+  onValue,
+  Unsubscribe,
+} from 'firebase/database';
+import { rtdb } from './config';
 import { PegData, Point2D, Traveler, ValidMove } from '../types';
 
 export interface PlayerInfo {
@@ -15,40 +25,6 @@ function generateRoomCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
-}
-
-// ==========================================================
-// SSE / REAL-TIME SUBSCRIPTION HELPER
-// ==========================================================
-
-function subscribeToRoomUpdates<T>(
-  roomId: string,
-  callback: (room: T | null) => void
-): () => void {
-  let isClosed = false;
-
-  // 1. Initial fetch
-  const fetchRoom = async () => {
-    try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (!isClosed) callback(data);
-      } else if (res.status === 404) {
-        if (!isClosed) callback(null);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  fetchRoom();
-  const pollInterval = setInterval(fetchRoom, 1000);
-
-  return () => {
-    isClosed = true;
-    clearInterval(pollInterval);
-  };
 }
 
 // ==========================================================
@@ -139,12 +115,7 @@ export async function createTicTacToeRoom(host: {
     rematch: {},
   };
 
-  await fetch('/api/rooms/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gameType: 'tictactoe', roomData: initialRoom }),
-  });
-
+  await set(ref(rtdb, `rooms/tictactoe/${roomId}`), initialRoom);
   return initialRoom;
 }
 
@@ -159,12 +130,14 @@ export async function joinTicTacToeRoom(
   const roomId = `ttt_${cleanCode}`;
 
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) {
+    const roomRef = ref(rtdb, `rooms/tictactoe/${roomId}`);
+    const snapshot = await get(roomRef);
+
+    if (!snapshot.exists()) {
       return { success: false, error: `Room "${cleanCode}" not found. Verify 6-digit code.` };
     }
 
-    const room: TicTacToeRoom = await res.json();
+    const room: TicTacToeRoom = snapshot.val();
 
     if (room.host.uid === guest.uid) return { success: true, room };
     if (room.guest?.uid === guest.uid) return { success: true, room };
@@ -179,22 +152,15 @@ export async function joinTicTacToeRoom(
       symbol: 'O',
     };
 
-    const updatedRes = await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          guest: guestPlayer,
-          status: 'playing',
-        },
-      }),
+    await update(roomRef, {
+      guest: guestPlayer,
+      status: 'playing',
+      updatedAt: Date.now(),
     });
 
-    const updatedData = await updatedRes.json();
-    return { success: true, room: updatedData.room };
+    return { success: true, room: { ...room, guest: guestPlayer, status: 'playing' } };
   } catch (err: any) {
-    return { success: false, error: 'Connection failed: ' + err.message };
+    return { success: false, error: 'Connection failed: ' + (err?.message || 'Check Firebase rules') };
   }
 }
 
@@ -213,10 +179,11 @@ export async function makeMultiplayerMove(
   playerSymbol: 'X' | 'O'
 ): Promise<boolean> {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return false;
+    const roomRef = ref(rtdb, `rooms/tictactoe/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return false;
 
-    const room: TicTacToeRoom = await res.json();
+    const room: TicTacToeRoom = snapshot.val();
     if (room.status !== 'playing' || room.winner !== null) return false;
     if (room.currentTurn !== playerSymbol) return false;
     if (room.board[cellIndex] !== null) return false;
@@ -232,20 +199,14 @@ export async function makeMultiplayerMove(
     else if (check.winner === 'O') newScores.O += 1;
     else if (check.winner === 'draw') newScores.draws += 1;
 
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          board: newBoard,
-          currentTurn: nextTurn,
-          winner: check.winner,
-          winningLine: check.winningLine,
-          scores: newScores,
-          status: check.winner ? 'finished' : 'playing',
-        },
-      }),
+    await update(roomRef, {
+      board: newBoard,
+      currentTurn: nextTurn,
+      winner: check.winner,
+      winningLine: check.winningLine,
+      scores: newScores,
+      status: check.winner ? 'finished' : 'playing',
+      updatedAt: Date.now(),
     });
 
     return true;
@@ -259,36 +220,27 @@ export async function requestMultiplayerRematch(
   playerSymbol: 'X' | 'O'
 ) {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return;
+    const roomRef = ref(rtdb, `rooms/tictactoe/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return;
 
-    const room: TicTacToeRoom = await res.json();
+    const room: TicTacToeRoom = snapshot.val();
     const updatedRematch = { ...room.rematch, [playerSymbol]: true };
 
     if (updatedRematch.X && updatedRematch.O) {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: {
-            board: Array(9).fill(null),
-            currentTurn: 'X',
-            winner: null,
-            winningLine: null,
-            status: 'playing',
-            rematch: {},
-          },
-        }),
+      await update(roomRef, {
+        board: Array(9).fill(null),
+        currentTurn: 'X',
+        winner: null,
+        winningLine: null,
+        status: 'playing',
+        rematch: {},
+        updatedAt: Date.now(),
       });
     } else {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: { rematch: updatedRematch },
-        }),
+      await update(roomRef, {
+        rematch: updatedRematch,
+        updatedAt: Date.now(),
       });
     }
   } catch {
@@ -298,15 +250,9 @@ export async function requestMultiplayerRematch(
 
 export async function sendRoomReaction(roomId: string, uid: string, emoji: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          lastReaction: { uid, emoji, timestamp: Date.now() },
-        },
-      }),
+    await update(ref(rtdb, `rooms/tictactoe/${roomId}`), {
+      lastReaction: { uid, emoji, timestamp: Date.now() },
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore
@@ -316,19 +262,33 @@ export async function sendRoomReaction(roomId: string, uid: string, emoji: strin
 export function subscribeToTicTacToeRoom(
   roomId: string,
   callback: (room: TicTacToeRoom | null) => void
-) {
-  return subscribeToRoomUpdates<TicTacToeRoom>(roomId, callback);
+): Unsubscribe {
+  try {
+    const roomRef = ref(rtdb, `rooms/tictactoe/${roomId}`);
+    return onValue(
+      roomRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          callback(snapshot.val());
+        } else {
+          callback(null);
+        }
+      },
+      (err) => {
+        console.warn('subscribeToTicTacToeRoom error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToTicTacToeRoom error:', err);
+    return () => {};
+  }
 }
 
 export async function leaveTicTacToeRoom(roomId: string, uid: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: { status: 'finished' },
-      }),
+    await update(ref(rtdb, `rooms/tictactoe/${roomId}`), {
+      status: 'finished',
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore
@@ -400,12 +360,7 @@ export async function createPegsRoom(
     rematch: {},
   };
 
-  await fetch('/api/rooms/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gameType: 'pegs', roomData: initialRoom }),
-  });
-
+  await set(ref(rtdb, `rooms/pegs/${roomId}`), initialRoom);
   return initialRoom;
 }
 
@@ -420,12 +375,14 @@ export async function joinPegsRoom(
   const roomId = `pegs_${cleanCode}`;
 
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) {
+    const roomRef = ref(rtdb, `rooms/pegs/${roomId}`);
+    const snapshot = await get(roomRef);
+
+    if (!snapshot.exists()) {
       return { success: false, error: `Pegs room "${cleanCode}" not found. Verify room code.` };
     }
 
-    const room: PegsRoom = await res.json();
+    const room: PegsRoom = snapshot.val();
     if (room.host.uid === guest.uid) return { success: true, room };
     if (room.guest?.uid === guest.uid) return { success: true, room };
     if (room.guest && room.guest.uid !== guest.uid) {
@@ -439,19 +396,15 @@ export async function joinPegsRoom(
       role: 'Partner (Player 2)',
     };
 
-    const updatedRes = await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: { guest: guestPlayer, status: 'playing' },
-      }),
+    await update(roomRef, {
+      guest: guestPlayer,
+      status: 'playing',
+      updatedAt: Date.now(),
     });
 
-    const updatedData = await updatedRes.json();
-    return { success: true, room: updatedData.room };
+    return { success: true, room: { ...room, guest: guestPlayer, status: 'playing' } };
   } catch (err: any) {
-    return { success: false, error: 'Failed to join: ' + err.message };
+    return { success: false, error: 'Failed to join: ' + (err?.message || 'Check Firebase rules') };
   }
 }
 
@@ -473,33 +426,28 @@ export async function makePegsMultiplayerMove(
   isVictory: boolean
 ): Promise<boolean> {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return false;
+    const roomRef = ref(rtdb, `rooms/pegs/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return false;
 
-    const room: PegsRoom = await res.json();
+    const room: PegsRoom = snapshot.val();
     const nextTurnUid = moverUid === room.host.uid ? (room.guest?.uid || room.host.uid) : room.host.uid;
 
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          pegs: nextPegs,
-          currentTurnUid: nextTurnUid,
-          movesCount: (room.movesCount || 0) + 1,
-          isVictory,
-          status: isVictory ? 'completed' : 'playing',
-          lastMove: {
-            pegId: move.pegId,
-            from: move.from,
-            dest: move.dest,
-            pivot: move.pivot,
-            movedByUid: moverUid,
-            timestamp: Date.now(),
-          },
-        },
-      }),
+    await update(roomRef, {
+      pegs: nextPegs,
+      currentTurnUid: nextTurnUid,
+      movesCount: (room.movesCount || 0) + 1,
+      isVictory,
+      status: isVictory ? 'completed' : 'playing',
+      lastMove: {
+        pegId: move.pegId,
+        from: move.from,
+        dest: move.dest,
+        pivot: move.pivot,
+        movedByUid: moverUid,
+        timestamp: Date.now(),
+      },
+      updatedAt: Date.now(),
     });
     return true;
   } catch {
@@ -513,38 +461,29 @@ export async function requestPegsRematch(
   initialPegs: PegData[]
 ) {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return;
+    const roomRef = ref(rtdb, `rooms/pegs/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return;
 
-    const room: PegsRoom = await res.json();
+    const room: PegsRoom = snapshot.val();
     const updatedRematch = { ...(room.rematch || {}), [uid]: true };
     const bothReady = room.guest && updatedRematch[room.host.uid] && updatedRematch[room.guest.uid];
 
     if (bothReady || !room.guest) {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: {
-            pegs: initialPegs,
-            movesCount: 0,
-            isVictory: false,
-            status: 'playing',
-            currentTurnUid: room.host.uid,
-            lastMove: null,
-            rematch: {},
-          },
-        }),
+      await update(roomRef, {
+        pegs: initialPegs,
+        movesCount: 0,
+        isVictory: false,
+        status: 'playing',
+        currentTurnUid: room.host.uid,
+        lastMove: null,
+        rematch: {},
+        updatedAt: Date.now(),
       });
     } else {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: { rematch: updatedRematch },
-        }),
+      await update(roomRef, {
+        rematch: updatedRematch,
+        updatedAt: Date.now(),
       });
     }
   } catch {
@@ -554,15 +493,9 @@ export async function requestPegsRematch(
 
 export async function sendPegsReaction(roomId: string, uid: string, emoji: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          lastReaction: { uid, emoji, timestamp: Date.now() },
-        },
-      }),
+    await update(ref(rtdb, `rooms/pegs/${roomId}`), {
+      lastReaction: { uid, emoji, timestamp: Date.now() },
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore
@@ -572,19 +505,33 @@ export async function sendPegsReaction(roomId: string, uid: string, emoji: strin
 export function subscribeToPegsRoom(
   roomId: string,
   callback: (room: PegsRoom | null) => void
-) {
-  return subscribeToRoomUpdates<PegsRoom>(roomId, callback);
+): Unsubscribe {
+  try {
+    const roomRef = ref(rtdb, `rooms/pegs/${roomId}`);
+    return onValue(
+      roomRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          callback(snapshot.val());
+        } else {
+          callback(null);
+        }
+      },
+      (err) => {
+        console.warn('subscribeToPegsRoom error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToPegsRoom error:', err);
+    return () => {};
+  }
 }
 
 export async function leavePegsRoom(roomId: string, uid: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: { status: 'completed' },
-      }),
+    await update(ref(rtdb, `rooms/pegs/${roomId}`), {
+      status: 'completed',
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore
@@ -656,12 +603,7 @@ export async function createBridgeRoom(
     rematch: {},
   };
 
-  await fetch('/api/rooms/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gameType: 'bridge', roomData: initialRoom }),
-  });
-
+  await set(ref(rtdb, `rooms/bridge/${roomId}`), initialRoom);
   return initialRoom;
 }
 
@@ -676,12 +618,14 @@ export async function joinBridgeRoom(
   const roomId = `bridge_${cleanCode}`;
 
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) {
+    const roomRef = ref(rtdb, `rooms/bridge/${roomId}`);
+    const snapshot = await get(roomRef);
+
+    if (!snapshot.exists()) {
       return { success: false, error: `Bridge room "${cleanCode}" not found. Verify room code.` };
     }
 
-    const room: BridgeRoom = await res.json();
+    const room: BridgeRoom = snapshot.val();
     if (room.host.uid === guest.uid) return { success: true, room };
     if (room.guest?.uid === guest.uid) return { success: true, room };
     if (room.guest && room.guest.uid !== guest.uid) {
@@ -695,19 +639,15 @@ export async function joinBridgeRoom(
       role: 'Partner (Explorer 2)',
     };
 
-    const updatedRes = await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: { guest: guestPlayer, status: 'playing' },
-      }),
+    await update(roomRef, {
+      guest: guestPlayer,
+      status: 'playing',
+      updatedAt: Date.now(),
     });
 
-    const updatedData = await updatedRes.json();
-    return { success: true, room: updatedData.room };
+    return { success: true, room: { ...room, guest: guestPlayer, status: 'playing' } };
   } catch (err: any) {
-    return { success: false, error: 'Failed to join: ' + err.message };
+    return { success: false, error: 'Failed to join: ' + (err?.message || 'Check Firebase rules') };
   }
 }
 
@@ -733,34 +673,29 @@ export async function makeBridgeMultiplayerCrossing(
   isVictory: boolean
 ): Promise<boolean> {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return false;
+    const roomRef = ref(rtdb, `rooms/bridge/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return false;
 
-    const room: BridgeRoom = await res.json();
+    const room: BridgeRoom = snapshot.val();
     const nextTurnUid = moverUid === room.host.uid ? (room.guest?.uid || room.host.uid) : room.host.uid;
 
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          leftBank: nextLeft,
-          rightBank: nextRight,
-          torchBank: nextTorch,
-          elapsedTime: nextElapsed,
-          currentTurnUid: nextTurnUid,
-          isVictory,
-          status: isVictory ? 'completed' : 'playing',
-          lastCrossing: {
-            travelerIds,
-            direction,
-            duration,
-            movedByUid: moverUid,
-            timestamp: Date.now(),
-          },
-        },
-      }),
+    await update(roomRef, {
+      leftBank: nextLeft,
+      rightBank: nextRight,
+      torchBank: nextTorch,
+      elapsedTime: nextElapsed,
+      currentTurnUid: nextTurnUid,
+      isVictory,
+      status: isVictory ? 'completed' : 'playing',
+      lastCrossing: {
+        travelerIds,
+        direction,
+        duration,
+        movedByUid: moverUid,
+        timestamp: Date.now(),
+      },
+      updatedAt: Date.now(),
     });
 
     return true;
@@ -775,40 +710,31 @@ export async function requestBridgeRematch(
   initialTravelers: Traveler[]
 ) {
   try {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`);
-    if (!res.ok) return;
+    const roomRef = ref(rtdb, `rooms/bridge/${roomId}`);
+    const snapshot = await get(roomRef);
+    if (!snapshot.exists()) return;
 
-    const room: BridgeRoom = await res.json();
+    const room: BridgeRoom = snapshot.val();
     const updatedRematch = { ...(room.rematch || {}), [uid]: true };
     const bothReady = room.guest && updatedRematch[room.host.uid] && updatedRematch[room.guest.uid];
 
     if (bothReady || !room.guest) {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: {
-            leftBank: initialTravelers,
-            rightBank: [],
-            torchBank: 'left',
-            elapsedTime: 0,
-            isVictory: false,
-            status: 'playing',
-            currentTurnUid: room.host.uid,
-            lastCrossing: null,
-            rematch: {},
-          },
-        }),
+      await update(roomRef, {
+        leftBank: initialTravelers,
+        rightBank: [],
+        torchBank: 'left',
+        elapsedTime: 0,
+        isVictory: false,
+        status: 'playing',
+        currentTurnUid: room.host.uid,
+        lastCrossing: null,
+        rematch: {},
+        updatedAt: Date.now(),
       });
     } else {
-      await fetch('/api/rooms/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId,
-          updates: { rematch: updatedRematch },
-        }),
+      await update(roomRef, {
+        rematch: updatedRematch,
+        updatedAt: Date.now(),
       });
     }
   } catch {
@@ -818,15 +744,9 @@ export async function requestBridgeRematch(
 
 export async function sendBridgeReaction(roomId: string, uid: string, emoji: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: {
-          lastReaction: { uid, emoji, timestamp: Date.now() },
-        },
-      }),
+    await update(ref(rtdb, `rooms/bridge/${roomId}`), {
+      lastReaction: { uid, emoji, timestamp: Date.now() },
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore
@@ -836,19 +756,33 @@ export async function sendBridgeReaction(roomId: string, uid: string, emoji: str
 export function subscribeToBridgeRoom(
   roomId: string,
   callback: (room: BridgeRoom | null) => void
-) {
-  return subscribeToRoomUpdates<BridgeRoom>(roomId, callback);
+): Unsubscribe {
+  try {
+    const roomRef = ref(rtdb, `rooms/bridge/${roomId}`);
+    return onValue(
+      roomRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          callback(snapshot.val());
+        } else {
+          callback(null);
+        }
+      },
+      (err) => {
+        console.warn('subscribeToBridgeRoom error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToBridgeRoom error:', err);
+    return () => {};
+  }
 }
 
 export async function leaveBridgeRoom(roomId: string, uid: string) {
   try {
-    await fetch('/api/rooms/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        roomId,
-        updates: { status: 'completed' },
-      }),
+    await update(ref(rtdb, `rooms/bridge/${roomId}`), {
+      status: 'completed',
+      updatedAt: Date.now(),
     });
   } catch {
     // ignore

@@ -72,8 +72,24 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [copiedId, setCopiedId] = useState(false);
   const [invitingUid, setInvitingUid] = useState<string | null>(null);
   const [inviteSuccessMsg, setInviteSuccessMsg] = useState<string | null>(null);
-  const [requestFeedback, setRequestFeedback] = useState<{ msg: string; error?: boolean } | null>(null);
+  const [requestFeedback, setRequestFeedback] = useState<{ msg: string; error?: boolean; isPermissionDenied?: boolean } | null>(null);
+  const [showFirebaseGuide, setShowFirebaseGuide] = useState(false);
+  const [copiedRules, setCopiedRules] = useState(false);
   const [gameSelectForPlayer, setGameSelectForPlayer] = useState<string | null>(null);
+
+  const FIREBASE_RULES_SNIPPET = `{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}`;
+
+  const handleCopyRules = () => {
+    navigator.clipboard.writeText(FIREBASE_RULES_SNIPPET);
+    setCopiedRules(true);
+    sound.playSelect();
+    setTimeout(() => setCopiedRules(false), 2500);
+  };
 
   // Subscribe to all players online / presence
   useEffect(() => {
@@ -116,14 +132,23 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
     try {
       sound.playSelect();
       const res = await sendRealtimeFriendRequest(myUid, profile.name, profile.avatar, clean);
-      setRequestFeedback({ msg: res.message, error: !res.success });
+      setRequestFeedback({
+        msg: res.message,
+        error: !res.success,
+        isPermissionDenied: res.isPermissionDenied,
+      });
+      if (res.isPermissionDenied) {
+        setShowFirebaseGuide(true);
+      }
       if (res.success) {
         setSearchId('');
+        setTimeout(() => setRequestFeedback(null), 5000);
       }
-      setTimeout(() => setRequestFeedback(null), 4000);
     } catch (err: any) {
-      setRequestFeedback({ msg: 'Failed to send request: ' + err.message, error: true });
-      setTimeout(() => setRequestFeedback(null), 4000);
+      setRequestFeedback({
+        msg: 'Failed to send request: ' + err.message,
+        error: true,
+      });
     }
   };
 
@@ -778,16 +803,17 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
             {/* 4. ADD FRIEND BY ID TAB */}
             {activeTab === 'add' && (
               <div className="p-2 space-y-4">
+                {/* Search Gamer ID */}
                 <div>
                   <label className="text-xs font-bold text-slate-300 block mb-2">
-                    Enter Gamer ID:
+                    Enter Friend's Gamer ID:
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={searchId}
                       onChange={(e) => setSearchId(e.target.value)}
-                      placeholder="e.g. usr_8k9a2..."
+                      placeholder="e.g. usr_8k9a2... or paste ID"
                       className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-400"
                     />
                     <button
@@ -799,6 +825,77 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                       Send Request
                     </button>
                   </div>
+                </div>
+
+                {/* My ID Quick Share Card */}
+                <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="text-xl p-1 bg-slate-800 rounded-xl">{profile.avatar}</div>
+                    <div>
+                      <div className="text-[11px] text-slate-400 font-semibold">Your Gamer ID:</div>
+                      <div className="text-xs font-mono font-bold text-cyan-300">{myUid}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleCopyMyId}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-cyan-300 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copiedId ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    <span>{copiedId ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                </div>
+
+                {/* Firebase Permission Guide Box */}
+                <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                      <Shield size={16} />
+                      <span>Firebase Realtime Database Setup (यदि Permission Denied आए)</span>
+                    </div>
+                    <button
+                      onClick={() => setShowFirebaseGuide(!showFirebaseGuide)}
+                      className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer flex items-center gap-0.5"
+                    >
+                      {showFirebaseGuide ? 'Hide Guide' : 'View Fix Steps'}
+                      <ChevronDown size={14} className={`transform transition-transform ${showFirebaseGuide ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    अगर आपको <code className="text-rose-400 font-mono">PERMISSION_DENIED</code> एरर आता है, तो इसका मतलब आपके Firebase Realtime Database में Rules लॉक हैं। इसे ठीक करने के लिए नीचे दिए गए 2 आसान स्टेप्स करें:
+                  </p>
+
+                  {showFirebaseGuide && (
+                    <div className="space-y-3 pt-2 border-t border-slate-800 text-xs text-slate-300">
+                      <div className="space-y-1">
+                        <span className="font-bold text-cyan-400">Step 1: Firebase Console में Rules बदलें</span>
+                        <p className="text-[11px] text-slate-400">
+                          1. <strong className="text-white">console.firebase.google.com</strong> पर जाएं और प्रोजेक्ट <strong>pagg-game</strong> खोलें।<br />
+                          2. Left Sidebar में <strong>Build &gt; Realtime Database</strong> &gt; <strong>Rules</strong> टैब पर जाएं।<br />
+                          3. Rules में नीचे दिया गया कोड पेस्ट करके <strong>Publish</strong> दबाएं:
+                        </p>
+                        <div className="relative mt-2">
+                          <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-[11px] font-mono text-emerald-400 overflow-x-auto">
+                            {FIREBASE_RULES_SNIPPET}
+                          </pre>
+                          <button
+                            onClick={handleCopyRules}
+                            className="absolute top-2 right-2 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-bold text-cyan-300 flex items-center gap-1 cursor-pointer"
+                          >
+                            {copiedRules ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                            <span>{copiedRules ? 'Copied!' : 'Copy Rules'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1 pt-1">
+                        <span className="font-bold text-cyan-400">Step 2: Anonymous Sign-in चालू करें</span>
+                        <p className="text-[11px] text-slate-400">
+                          <strong>Build &gt; Authentication &gt; Sign-in method</strong> में जाएं &gt; <strong>Anonymous</strong> पर क्लिक करके <strong className="text-emerald-400">Enable</strong> करें और Save करें।
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2.5">
