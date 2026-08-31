@@ -31,9 +31,11 @@ import {
   setupPresence,
   updateGameActivity,
   listenForIncomingInvites,
+  listenToIncomingFriendRequests,
   listenToAllPlayers,
   getLocalProfile,
   GameInvite,
+  FriendRequest,
   UserPresence,
 } from './firebase/presence';
 
@@ -45,6 +47,7 @@ export default function App() {
   const [myUid, setMyUid] = useState<string>('usr_guest');
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
   const [incomingInvites, setIncomingInvites] = useState<GameInvite[]>([]);
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequest[]>([]);
   const [targetRoomId, setTargetRoomId] = useState<string | null>(null);
   const [onlinePlayersCount, setOnlinePlayersCount] = useState<number>(1);
 
@@ -102,6 +105,9 @@ export default function App() {
   // 1. Initialize Firebase Auth & Real-time Presence
   useEffect(() => {
     let cleanupPresence: (() => void) | undefined;
+    let unsubInvites: (() => void) | undefined;
+    let unsubFriendReqs: (() => void) | undefined;
+    let unsubPlayers: (() => void) | undefined;
 
     initFirebaseAuth().then((uid) => {
       setMyUid(uid);
@@ -109,24 +115,27 @@ export default function App() {
       cleanupPresence = setupPresence(uid, prof.name, prof.avatar, 'Arcade Hub');
 
       // Listen for incoming game invites
-      const unsubInvites = listenForIncomingInvites(uid, (invites) => {
+      unsubInvites = listenForIncomingInvites(uid, (invites) => {
         setIncomingInvites(invites);
       });
 
+      // Listen for incoming friend requests
+      unsubFriendReqs = listenToIncomingFriendRequests(uid, (reqs) => {
+        setIncomingFriendRequests(reqs);
+      });
+
       // Listen for total online players
-      const unsubPlayers = listenToAllPlayers((players: UserPresence[]) => {
+      unsubPlayers = listenToAllPlayers((players: UserPresence[]) => {
         const active = players.filter((p) => p.status === 'online' || p.status === 'in-game');
         setOnlinePlayersCount(Math.max(1, active.length));
       });
-
-      return () => {
-        unsubInvites();
-        unsubPlayers();
-      };
     });
 
     return () => {
       if (cleanupPresence) cleanupPresence();
+      if (unsubInvites) unsubInvites();
+      if (unsubFriendReqs) unsubFriendReqs();
+      if (unsubPlayers) unsubPlayers();
     };
   }, []);
 
@@ -335,16 +344,26 @@ export default function App() {
   }, [selectedPegId, pegs]);
 
   const handleAcceptInvite = (invite: GameInvite) => {
+    setTargetRoomId(invite.roomId);
     if (invite.gameId === 'tictactoe') {
-      setTargetRoomId(invite.roomId);
       setActiveGame('tictactoe');
+    } else if (invite.gameId === 'pegs') {
+      setActiveGame('pegs');
+      setScreenMode('game');
+    } else if (invite.gameId === 'bridge') {
+      setActiveGame('bridge');
     }
   };
 
   const handleLaunchGameWithRoom = (gameId: string, roomId: string) => {
+    setTargetRoomId(roomId);
     if (gameId === 'tictactoe') {
-      setTargetRoomId(roomId);
       setActiveGame('tictactoe');
+    } else if (gameId === 'pegs') {
+      setActiveGame('pegs');
+      setScreenMode('game');
+    } else if (gameId === 'bridge') {
+      setActiveGame('bridge');
     }
   };
 
@@ -355,6 +374,7 @@ export default function App() {
          ========================================================== */}
       <IncomingInviteToast
         invites={incomingInvites}
+        friendRequests={incomingFriendRequests}
         myUid={myUid}
         onAcceptInvite={handleAcceptInvite}
       />
@@ -397,9 +417,13 @@ export default function App() {
         <BridgeGame
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
+          myUid={myUid}
+          initialRoomId={targetRoomId}
+          onOpenFriends={() => setIsFriendsOpen(true)}
           onReturnToHub={() => {
             refreshHubProgress();
             sound.playSelect();
+            setTargetRoomId(null);
             setActiveGame('hub');
           }}
         />

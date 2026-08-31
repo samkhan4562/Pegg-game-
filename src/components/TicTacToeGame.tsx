@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useTransition } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import {
@@ -14,12 +14,13 @@ import {
   Sparkles,
   Volume2,
   VolumeX,
-  Share2,
   Trophy,
   Swords,
   Radio,
   Send,
   Zap,
+  UserPlus,
+  Loader2,
 } from 'lucide-react';
 import { sound } from '../audio/soundEffects';
 import { getAIMove, AIDifficulty } from '../game/tictactoeAI';
@@ -34,9 +35,8 @@ import {
   subscribeToTicTacToeRoom,
   leaveTicTacToeRoom,
   checkTicTacToeWinner,
-  WINNING_COMBOS,
 } from '../firebase/multiplayer';
-import { getLocalProfile, addLocalFriend } from '../firebase/presence';
+import { getLocalProfile } from '../firebase/presence';
 
 export type GameMode = 'ai' | 'local' | 'online';
 
@@ -84,14 +84,6 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       if (room) {
         setOnlineRoom(room);
         setMode('online');
-
-        // Auto-add opponent to local friends
-        if (room.host && room.host.uid !== myUid) {
-          addLocalFriend(room.host.uid);
-        }
-        if (room.guest && room.guest.uid !== myUid) {
-          addLocalFriend(room.guest.uid);
-        }
 
         // Check for winner celebration
         if (room.winner && room.winner !== 'draw') {
@@ -206,6 +198,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       setOnlineRoomId(room.id);
       setOnlineRoom(room);
       setIsJoining(false);
+      sound.playSelect();
     } catch (err: any) {
       setOnlineError('Failed to create room: ' + err.message);
       setIsJoining(false);
@@ -227,8 +220,10 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         setOnlineRoomId(res.room.id);
         setOnlineRoom(res.room);
         setJoinCodeInput('');
+        sound.playWin();
       } else {
-        setOnlineError(res.error || 'Failed to join room.');
+        setOnlineError(res.error || 'Failed to join room. Verify code.');
+        sound.playError();
       }
       setIsJoining(false);
     } catch (err: any) {
@@ -249,6 +244,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       setOnlineRoomId(res.room.id);
       setOnlineRoom(res.room);
       setIsJoining(false);
+      sound.playSelect();
     } catch (err: any) {
       setOnlineError('Quick Match error: ' + err.message);
       setIsJoining(false);
@@ -260,6 +256,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       await leaveTicTacToeRoom(onlineRoom.id, myUid);
       setOnlineRoom(null);
       setOnlineRoomId(null);
+      sound.playSelect();
     }
   };
 
@@ -268,6 +265,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     const isHost = onlineRoom.host.uid === myUid;
     const mySymbol: 'X' | 'O' = isHost ? 'X' : 'O';
     await requestMultiplayerRematch(onlineRoom.id, mySymbol);
+    sound.playSelect();
   };
 
   const handleSendReaction = async (emoji: string) => {
@@ -280,6 +278,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     if (!onlineRoom) return;
     navigator.clipboard.writeText(onlineRoom.code);
     setCopiedCode(true);
+    sound.playSelect();
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
@@ -495,7 +494,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
               <div className="flex gap-2 max-w-sm mx-auto">
                 <input
                   type="text"
-                  maxLength={8}
+                  maxLength={10}
                   value={joinCodeInput}
                   onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
                   placeholder="e.g. 7X9K2A"
@@ -504,8 +503,9 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
                 <button
                   onClick={() => handleJoinByCode()}
                   disabled={!joinCodeInput.trim() || isJoining}
-                  className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
+                  {isJoining ? <Loader2 size={14} className="animate-spin" /> : null}
                   Join Room
                 </button>
               </div>
@@ -514,9 +514,95 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         )}
 
         {/* ========================================================
+            ONLINE ROOM WAITING LOBBY (FIX FOR BLANK SCREEN)
+           ======================================================== */}
+        {mode === 'online' && onlineRoom && onlineRoom.status === 'waiting' && (
+          <div className="w-full bg-slate-900/95 border-2 border-cyan-500/60 rounded-3xl p-6 sm:p-8 mb-6 shadow-2xl backdrop-blur-2xl text-center">
+            {/* Animated Radar */}
+            <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-cyan-500/20 animate-ping opacity-60" />
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300 shadow-lg">
+                <Radio size={28} className="animate-pulse" />
+              </div>
+            </div>
+
+            <h3 className="text-xl font-black text-white tracking-tight">
+              Waiting for Opponent to Join
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+              Share the 6-digit room code with your friend, or invite an active player directly!
+            </p>
+
+            {/* Large Room Code Display */}
+            <div className="my-6 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-center gap-3 max-w-xs mx-auto shadow-inner">
+              <span className="text-xs font-bold text-slate-400 uppercase">Code:</span>
+              <span className="font-mono text-2xl font-black tracking-widest text-cyan-400">
+                {onlineRoom.code}
+              </span>
+              <button
+                onClick={handleCopyCode}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Copy Room Code"
+              >
+                {copiedCode ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+              </button>
+            </div>
+
+            {/* Players Status Slot Cards */}
+            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto mb-6">
+              {/* Host Slot */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-cyan-500/40 flex items-center gap-3">
+                <div className="text-2xl p-1 bg-cyan-500/10 rounded-xl border border-cyan-500/30">
+                  {onlineRoom.host.avatar || '👾'}
+                </div>
+                <div className="text-left overflow-hidden">
+                  <div className="text-xs font-bold text-white truncate">{onlineRoom.host.name}</div>
+                  <span className="text-[10px] text-cyan-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Host (X) Ready
+                  </span>
+                </div>
+              </div>
+
+              {/* Guest Slot */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/40 border border-slate-800/80 border-dashed flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
+                  <UserPlus size={18} className="animate-pulse" />
+                </div>
+                <div className="text-left overflow-hidden">
+                  <div className="text-xs font-bold text-slate-400">Player 2 (O)</div>
+                  <span className="text-[10px] text-amber-400 font-semibold animate-pulse">
+                    Waiting to connect...
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Lobby Actions */}
+            <div className="flex items-center justify-center gap-3">
+              {onOpenFriends && (
+                <button
+                  onClick={onOpenFriends}
+                  className="px-5 py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Users size={15} />
+                  Invite Online Friend
+                </button>
+              )}
+
+              <button
+                onClick={handleLeaveOnlineRoom}
+                className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancel Room
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
             ACTIVE GAME STATUS & SCORECARD
            ======================================================== */}
-        {(mode !== 'online' || onlineRoom) && (
+        {(mode !== 'online' || (onlineRoom && onlineRoom.status !== 'waiting')) && (
           <div className="w-full mb-5">
             {/* Online Room Info Bar */}
             {mode === 'online' && onlineRoom && (
@@ -536,17 +622,10 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {onlineRoom.status === 'waiting' ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold animate-pulse">
-                      <Radio size={12} />
-                      Waiting for Guest...
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      Live Match
-                    </span>
-                  )}
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Live Match
+                  </span>
                   <button
                     onClick={handleLeaveOnlineRoom}
                     className="text-xs text-rose-400 hover:text-rose-300 font-semibold px-2 py-0.5 rounded hover:bg-rose-500/10 cursor-pointer"
@@ -774,7 +853,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         )}
 
         {/* Controls: Reset / Rematch */}
-        {(mode !== 'online' || onlineRoom) && (
+        {(mode !== 'online' || (onlineRoom && onlineRoom.status !== 'waiting')) && (
           <div className="flex items-center gap-3 mt-6">
             {mode === 'online' ? (
               <button

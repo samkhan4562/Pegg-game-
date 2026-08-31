@@ -18,18 +18,37 @@ import {
 } from '../types';
 import { getCrossingDuration, validateCrossing, solveBridgeCrossing } from '../game/bridgeMath';
 import { sound } from '../audio/soundEffects';
+import {
+  BridgeRoom,
+  createBridgeRoom,
+  joinBridgeRoom,
+  makeBridgeMultiplayerCrossing,
+  subscribeToBridgeRoom,
+  leaveBridgeRoom,
+  requestBridgeRematch,
+  sendBridgeReaction,
+} from '../firebase/multiplayer';
+import { getLocalProfile } from '../firebase/presence';
 
 interface BridgeGameProps {
   isMuted: boolean;
   onToggleMute: () => void;
   onReturnToHub: () => void;
+  myUid?: string;
+  initialRoomId?: string | null;
+  onOpenFriends?: () => void;
 }
 
 export const BridgeGame: React.FC<BridgeGameProps> = ({
   isMuted,
   onToggleMute,
   onReturnToHub,
+  myUid = 'usr_guest',
+  initialRoomId,
+  onOpenFriends,
 }) => {
+  const profile = getLocalProfile();
+
   // Level State
   const [levelList, setLevelList] = useState<BridgeLevelData[]>(BRIDGE_LEVELS);
   const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
@@ -50,6 +69,10 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
   const [isLevelComplete, setIsLevelComplete] = useState<boolean>(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState<number>(0);
 
+  // Multiplayer Online State
+  const [onlineRoom, setOnlineRoom] = useState<BridgeRoom | null>(null);
+  const [onlineRoomId, setOnlineRoomId] = useState<string | null>(initialRoomId || null);
+
   // Modals & Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [isLevelSelectOpen, setIsLevelSelectOpen] = useState<boolean>(false);
@@ -69,6 +92,25 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
       1: { unlocked: true, bestTime: null, stars: 0 },
     };
   });
+
+  // Subscribe to Online Room if active
+  useEffect(() => {
+    if (!onlineRoomId) return;
+    const unsub = subscribeToBridgeRoom(onlineRoomId, (room) => {
+      if (room) {
+        setOnlineRoom(room);
+        setLeftBank(room.leftBank || []);
+        setRightBank(room.rightBank || []);
+        setTorchBank(room.torchBank || 'left');
+        setElapsedTime(room.elapsedTime || 0);
+        setIsLevelComplete(room.isVictory || false);
+      } else {
+        setOnlineRoom(null);
+        setOnlineRoomId(null);
+      }
+    });
+    return () => unsub();
+  }, [onlineRoomId]);
 
   // Load Level Helper
   const loadLevel = useCallback(
@@ -92,54 +134,50 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
 
   // Initialize on mount
   useEffect(() => {
-    loadLevel(0);
-  }, []);
+    if (!initialRoomId) {
+      loadLevel(0);
+    }
+  }, [initialRoomId, loadLevel]);
 
   // Handle Traveler Selection
   const handleSelectTraveler = useCallback(
     (travelerId: string) => {
-      if (crossingTravelers !== null || isLevelComplete) return;
+      if (isLevelComplete || crossingTravelers !== null) return;
 
-      const currentBankTravelers = torchBank === 'left' ? leftBank : rightBank;
-      const isEligible = currentBankTravelers.some((t) => t.id === travelerId);
+      // In online mode, check if it's my turn
+      if (onlineRoom && onlineRoom.currentTurnUid !== myUid) return;
 
-      if (!isEligible) {
-        sound.playError();
-        return;
-      }
-
-      if (selectedIds.includes(travelerId)) {
-        // Deselect
-        sound.playSelect();
-        setSelectedIds((prev) => prev.filter((id) => id !== travelerId));
-      } else {
-        // Select (cap at bridgeCapacity)
-        if (selectedIds.length < currentLevel.bridgeCapacity) {
-          sound.playSelect();
-          setSelectedIds((prev) => [...prev, travelerId]);
+      sound.playSelect();
+      setSelectedIds((prev) => {
+        if (prev.includes(travelerId)) {
+          return prev.filter((id) => id !== travelerId);
         } else {
-          // Replace oldest selection
-          sound.playSelect();
-          setSelectedIds((prev) => [...prev.slice(1), travelerId]);
+          if (prev.length >= currentLevel.bridgeCapacity) {
+            return [...prev.slice(1), travelerId];
+          }
+          return [...prev, travelerId];
         }
-      }
+      });
     },
-    [crossingTravelers, isLevelComplete, torchBank, leftBank, rightBank, selectedIds, currentLevel.bridgeCapacity]
+    [isLevelComplete, crossingTravelers, currentLevel.bridgeCapacity, onlineRoom, myUid]
   );
 
   // Execute Bridge Crossing
-  const handleExecuteCrossing = useCallback(() => {
-    if (crossingTravelers !== null || selectedIds.length === 0 || isLevelComplete) return;
+  const handleCross = useCallback(() => {
+    if (selectedIds.length === 0 || crossingTravelers !== null || isLevelComplete) return;
 
-    const leftIds = leftBank.map((t) => t.id);
-    const rightIds = rightBank.map((t) => t.id);
+    if (onlineRoom && onlineRoom.currentTurnUid !== myUid) return;
+
+    const sourceBankTravelers = torchBank === 'left' ? leftBank : rightBank;
+    const movingTravelers = sourceBankTravelers.filter((t) => selectedIds.includes(t.id));
+
+    if (movingTravelers.length === 0) return;
 
     const validation = validateCrossing(
-      selectedIds,
+      movingTravelers,
       torchBank,
-      leftIds,
-      rightIds,
-      currentLevel.bridgeCapacity
+      currentLevel.bridgeCapacity,
+      sourceBankTravelers
     );
 
     if (!validation.valid) {
@@ -147,248 +185,191 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
       return;
     }
 
-    const currentBankList = torchBank === 'left' ? leftBank : rightBank;
-    const movingTravelers = currentBankList.filter((t) => selectedIds.includes(t.id));
-    const stepDuration = getCrossingDuration(movingTravelers);
-    const direction = torchBank === 'left' ? 'forward' : 'backward';
+    const crossingTime = getCrossingDuration(movingTravelers);
+    const direction: 'forward' | 'backward' = torchBank === 'left' ? 'forward' : 'backward';
 
-    // Record History Snapshot for Undo
-    const snapshot: BridgeHistorySnapshot = {
-      leftBankIds: leftBank.map((t) => t.id),
-      rightBankIds: rightBank.map((t) => t.id),
-      torchPosition: torchBank,
-      elapsedTime,
-      step: {
-        travelerIds: [...selectedIds],
-        travelers: movingTravelers.map((t) => ({ ...t })),
-        duration: stepDuration,
-        direction,
-      },
-    };
-    setHistory((prev) => [...prev, snapshot]);
-
-    // Remove travelers from current bank
-    if (torchBank === 'left') {
-      setLeftBank((prev) => prev.filter((t) => !selectedIds.includes(t.id)));
-    } else {
-      setRightBank((prev) => prev.filter((t) => !selectedIds.includes(t.id)));
-    }
-
-    setSelectedIds([]);
+    // Start Crossing Animation
+    sound.playMove();
     setCrossingTravelers(movingTravelers);
     setCrossingDirection(direction);
     setCrossingProgress(0);
 
-    // Play sounds
-    sound.playTorchIgnite();
-    const footstepPace = Math.max(160, Math.min(380, 240 + stepDuration * 20));
-    sound.startFootsteps(footstepPace);
-
-    // Animation loop (simulates crossing over bridge duration)
-    const animDurationMs = Math.max(1200, Math.min(2600, 1000 + stepDuration * 160));
+    const animationDuration = 900; // ms
     const startTime = performance.now();
 
-    const frameHandler = (now: number) => {
-      const elapsed = now - startTime;
-      const progressRatio = Math.min(1, elapsed / animDurationMs);
+    const animateCrossing = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progressRatio = Math.min(elapsed / animationDuration, 1);
       setCrossingProgress(progressRatio);
 
       if (progressRatio < 1) {
-        requestAnimationFrame(frameHandler);
+        requestAnimationFrame(animateCrossing);
       } else {
-        // Crossing Complete
-        sound.stopFootsteps();
-        sound.playLanding();
+        // Animation Complete: Update Banks
+        let nextLeft: Traveler[];
+        let nextRight: Traveler[];
+        let nextTorch: BridgeBank;
 
-        const nextTorch: BridgeBank = torchBank === 'left' ? 'right' : 'left';
-        setTorchBank(nextTorch);
-
-        let finalLeftBank = leftBank.filter((t) => !selectedIds.includes(t.id));
-        let finalRightBank = rightBank.filter((t) => !selectedIds.includes(t.id));
-
-        if (nextTorch === 'right') {
-          finalRightBank = [...finalRightBank, ...movingTravelers];
+        if (direction === 'forward') {
+          nextLeft = leftBank.filter((t) => !selectedIds.includes(t.id));
+          nextRight = [...rightBank, ...movingTravelers];
+          nextTorch = 'right';
         } else {
-          finalLeftBank = [...finalLeftBank, ...movingTravelers];
+          nextRight = rightBank.filter((t) => !selectedIds.includes(t.id));
+          nextLeft = [...leftBank, ...movingTravelers];
+          nextTorch = 'left';
         }
 
-        setLeftBank(finalLeftBank);
-        setRightBank(finalRightBank);
+        const nextElapsed = elapsedTime + crossingTime;
+        const isVictory = nextRight.length === currentLevel.travelers.length;
+
+        setLeftBank(nextLeft);
+        setRightBank(nextRight);
+        setTorchBank(nextTorch);
+        setElapsedTime(nextElapsed);
+        setSelectedIds([]);
         setCrossingTravelers(null);
         setCrossingDirection(null);
         setCrossingProgress(0);
 
-        const nextTotalTime = elapsedTime + stepDuration;
-        setElapsedTime(nextTotalTime);
+        if (onlineRoom) {
+          makeBridgeMultiplayerCrossing(
+            onlineRoom.id,
+            selectedIds,
+            direction,
+            crossingTime,
+            nextLeft,
+            nextRight,
+            nextTorch,
+            nextElapsed,
+            myUid,
+            isVictory
+          );
+        }
 
-        // Check Win Condition: All travelers on right bank
-        if (finalRightBank.length === currentLevel.travelers.length) {
-          sound.playWin();
+        if (isVictory) {
           setIsLevelComplete(true);
+          sound.playWin();
 
           // Calculate Stars
-          const solution = solveBridgeCrossing(currentLevel.travelers, currentLevel.bridgeCapacity);
-          let starsEarned = 1;
-          if (nextTotalTime <= currentLevel.parTime) {
-            starsEarned = 3;
-          } else if (nextTotalTime <= solution.naiveTime) {
-            starsEarned = 2;
+          let stars = 1;
+          if (nextElapsed <= currentLevel.parTime) {
+            stars = 3;
+          } else if (nextElapsed <= currentLevel.parTime + 4) {
+            stars = 2;
           }
 
-          // Update Progress
-          setProgress((prev) => {
-            const currentRecord = prev[currentLevel.id] || {
+          const currentLevelProgress = progress[currentLevel.id];
+          const newStars = Math.max(currentLevelProgress?.stars || 0, stars);
+          const bestTime =
+            currentLevelProgress?.bestTime === null
+              ? nextElapsed
+              : Math.min(currentLevelProgress?.bestTime ?? nextElapsed, nextElapsed);
+
+          const nextLevelId = currentLevel.id + 1;
+          const updatedProgress: Record<number, BridgeProgress> = {
+            ...progress,
+            [currentLevel.id]: {
               unlocked: true,
-              bestTime: null,
-              stars: 0,
-            };
-            const newBestTime =
-              currentRecord.bestTime === null
-                ? nextTotalTime
-                : Math.min(currentRecord.bestTime, nextTotalTime);
-            const newStars = Math.max(currentRecord.stars, starsEarned);
+              bestTime,
+              stars: newStars,
+            },
+          };
 
-            const nextLevelId = currentLevel.id + 1;
-            const updated: Record<number, BridgeProgress> = {
-              ...prev,
-              [currentLevel.id]: {
-                unlocked: true,
-                bestTime: newBestTime,
-                stars: newStars,
-              },
-              [nextLevelId]: {
-                ...(prev[nextLevelId] || {}),
-                unlocked: true,
-                bestTime: prev[nextLevelId]?.bestTime || null,
-                stars: prev[nextLevelId]?.stars || 0,
-              },
+          if (nextLevelId <= levelList.length) {
+            updatedProgress[nextLevelId] = {
+              unlocked: true,
+              bestTime: updatedProgress[nextLevelId]?.bestTime ?? null,
+              stars: updatedProgress[nextLevelId]?.stars ?? 0,
             };
+          }
 
-            try {
-              localStorage.setItem('bridge_puzzle_progress_v2', JSON.stringify(updated));
-            } catch {
-              // Ignore
-            }
-            return updated;
-          });
+          setProgress(updatedProgress);
+          try {
+            localStorage.setItem('bridge_puzzle_progress_v2', JSON.stringify(updatedProgress));
+          } catch {
+            // Ignore
+          }
         }
       }
     };
 
-    requestAnimationFrame(frameHandler);
+    requestAnimationFrame(animateCrossing);
   }, [
-    crossingTravelers,
     selectedIds,
+    crossingTravelers,
     isLevelComplete,
+    torchBank,
     leftBank,
     rightBank,
-    torchBank,
     currentLevel,
     elapsedTime,
+    onlineRoom,
+    myUid,
+    progress,
+    levelList.length,
   ]);
 
-  // Undo Move
   const handleUndo = useCallback(() => {
-    if (history.length === 0 || crossingTravelers !== null || isLevelComplete) return;
-
+    if (history.length === 0 || crossingTravelers !== null || isLevelComplete || onlineRoom) return;
     sound.playUndo();
     const lastSnapshot = history[history.length - 1];
-    setHistory((prev) => prev.slice(0, -1));
-
-    // Restore banks
-    const restoredLeft = currentLevel.travelers.filter((t) =>
-      lastSnapshot.leftBankIds.includes(t.id)
-    );
-    const restoredRight = currentLevel.travelers.filter((t) =>
-      lastSnapshot.rightBankIds.includes(t.id)
-    );
-
-    setLeftBank(restoredLeft);
-    setRightBank(restoredRight);
+    setLeftBank(currentLevel.travelers.filter((t) => lastSnapshot.leftBankIds.includes(t.id)));
+    setRightBank(currentLevel.travelers.filter((t) => lastSnapshot.rightBankIds.includes(t.id)));
     setTorchBank(lastSnapshot.torchPosition);
     setElapsedTime(lastSnapshot.elapsedTime);
     setSelectedIds([]);
-    setCrossingTravelers(null);
-  }, [history, crossingTravelers, isLevelComplete, currentLevel]);
+    setHistory((prev) => prev.slice(0, -1));
+  }, [history, crossingTravelers, isLevelComplete, currentLevel, onlineRoom]);
 
-  // Restart Level
   const handleRestart = useCallback(() => {
-    if (crossingTravelers !== null) return;
-    sound.playSelect();
-    loadLevel(currentLevelIndex);
-  }, [crossingTravelers, currentLevelIndex, loadLevel]);
+    sound.playRestart();
+    if (onlineRoom) {
+      requestBridgeRematch(onlineRoom.id, myUid, currentLevel.travelers);
+    } else {
+      loadLevel(currentLevelIndex);
+    }
+  }, [currentLevelIndex, loadLevel, onlineRoom, myUid, currentLevel.travelers]);
 
-  // Next Level
   const handleNextLevel = useCallback(() => {
     if (currentLevelIndex < levelList.length - 1) {
       loadLevel(currentLevelIndex + 1);
     }
   }, [currentLevelIndex, levelList.length, loadLevel]);
 
-  // Reset Camera
+  const handleSelectLevel = useCallback(
+    (index: number) => {
+      loadLevel(index);
+      setIsLevelSelectOpen(false);
+    },
+    [loadLevel]
+  );
+
   const handleResetCamera = useCallback(() => {
-    sound.playSelect();
     setCameraResetTrigger((prev) => prev + 1);
   }, []);
 
-  // Custom Scenario Launch
-  const handlePlayCustomLevel = useCallback(
-    (customLevel: BridgeLevelData) => {
-      setLevelList((prev) => [...prev, customLevel]);
-      const nextIndex = levelList.length;
-      setCurrentLevelIndex(nextIndex);
-      setLeftBank(customLevel.travelers.map((t) => ({ ...t })));
-      setRightBank([]);
-      setTorchBank('left');
-      setSelectedIds([]);
-      setElapsedTime(0);
-      setHistory([]);
-      setCrossingTravelers(null);
-      setCrossingDirection(null);
-      setCrossingProgress(0);
-      setIsLevelComplete(false);
-      setCameraResetTrigger((prev) => prev + 1);
-    },
-    [levelList.length]
-  );
-
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        handleUndo();
-      } else if (e.key.toLowerCase() === 'r') {
-        e.preventDefault();
-        handleRestart();
-      } else if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        handleExecuteCrossing();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setSelectedIds([]);
-        setIsDrawerOpen(false);
-        setIsLevelSelectOpen(false);
-        setIsHowToPlayOpen(false);
-        setIsComparisonOpen(false);
-        setIsSandboxOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRestart, handleExecuteCrossing]);
+  const handlePlayCustomLevel = useCallback((customLevel: BridgeLevelData) => {
+    sound.playSelect();
+    setLevelList((prev) => [customLevel, ...prev.filter((l) => l.id !== customLevel.id)]);
+    setCurrentLevelIndex(0);
+    setLeftBank(customLevel.travelers.map((t) => ({ ...t })));
+    setRightBank([]);
+    setTorchBank('left');
+    setSelectedIds([]);
+    setElapsedTime(0);
+    setHistory([]);
+    setCrossingTravelers(null);
+    setCrossingDirection(null);
+    setCrossingProgress(0);
+    setIsLevelComplete(false);
+    setCameraResetTrigger((prev) => prev + 1);
+    setIsSandboxOpen(false);
+  }, []);
 
   return (
-    <div className="relative w-screen h-screen bg-[#06080d] overflow-hidden select-none font-sans text-slate-100">
-      {/* 3D WebGL Bridge & Torch Canvas Layer */}
+    <div className="relative w-screen h-screen bg-[#07090e] overflow-hidden select-none font-sans text-slate-100">
+      {/* 3D WebGL Three.js Canvas */}
       <BridgeCanvas3D
         leftBank={leftBank}
         rightBank={rightBank}
@@ -397,36 +378,32 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
         crossingTravelers={crossingTravelers}
         crossingDirection={crossingDirection}
         crossingProgress={crossingProgress}
-        onSelectTraveler={handleSelectTraveler}
         cameraResetTrigger={cameraResetTrigger}
+        onSelectTraveler={handleSelectTraveler}
       />
 
-      {/* In-Game HUD (Top Stopwatch + Floating Crossing Action + Bottom Dock) */}
+      {/* In-Game HUD Controls */}
       <BridgeHUD
-        level={currentLevel}
+        currentLevel={currentLevel}
         levelIndex={currentLevelIndex}
         totalLevels={levelList.length}
         elapsedTime={elapsedTime}
-        leftBank={leftBank}
-        rightBank={rightBank}
         torchBank={torchBank}
         selectedIds={selectedIds}
-        history={history.map((h) => h.step)}
-        isCrossing={crossingTravelers !== null}
-        canUndo={history.length > 0 && crossingTravelers === null && !isLevelComplete}
+        leftBank={leftBank}
+        rightBank={rightBank}
         isMuted={isMuted}
-        onSelectTraveler={handleSelectTraveler}
-        onExecuteCrossing={handleExecuteCrossing}
+        canUndo={history.length > 0 && crossingTravelers === null && !isLevelComplete && !onlineRoom}
+        canCross={selectedIds.length > 0 && crossingTravelers === null && !isLevelComplete}
+        onCross={handleCross}
         onUndo={handleUndo}
         onRestart={handleRestart}
         onResetCamera={handleResetCamera}
         onToggleMute={onToggleMute}
         onOpenDrawer={() => setIsDrawerOpen(true)}
-        onOpenComparison={() => setIsComparisonOpen(true)}
-        onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
       />
 
-      {/* Slide-over Navigation Drawer */}
+      {/* Slide Navigation Drawer */}
       <BridgeSlideDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
@@ -437,10 +414,11 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
         onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
         onOpenSandbox={() => setIsSandboxOpen(true)}
         onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
+        onOpenComparison={() => setIsComparisonOpen(true)}
         onReturnToHub={onReturnToHub}
       />
 
-      {/* Victory Celebration & Par Comparison Modal */}
+      {/* Victory Modal */}
       <BridgeVictoryModal
         isOpen={isLevelComplete}
         level={currentLevel}
@@ -453,36 +431,37 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
           setIsLevelComplete(false);
           setIsLevelSelectOpen(true);
         }}
+        onCompareOptimal={() => {
+          setIsLevelComplete(false);
+          setIsComparisonOpen(true);
+        }}
       />
 
-      {/* Strategy Breakdown Modal */}
-      <BridgeComparisonModal
-        isOpen={isComparisonOpen}
-        level={currentLevel}
-        elapsedTime={elapsedTime}
-        history={history.map((h) => h.step)}
-        onClose={() => setIsComparisonOpen(false)}
-      />
-
-      {/* Level Select Catalog Modal */}
+      {/* Level Select Modal */}
       <BridgeLevelSelectModal
         isOpen={isLevelSelectOpen}
         levels={levelList}
         currentLevelIndex={currentLevelIndex}
         progress={progress}
-        onSelectLevel={(idx) => {
-          loadLevel(idx);
-        }}
+        onSelectLevel={handleSelectLevel}
         onClose={() => setIsLevelSelectOpen(false)}
       />
 
-      {/* How to Play Modal */}
+      {/* How To Play Modal */}
       <BridgeHowToPlayModal
         isOpen={isHowToPlayOpen}
         onClose={() => setIsHowToPlayOpen(false)}
       />
 
-      {/* Custom Scenario Builder Modal */}
+      {/* AI Comparison Modal */}
+      <BridgeComparisonModal
+        isOpen={isComparisonOpen}
+        currentLevel={currentLevel}
+        playerTime={elapsedTime}
+        onClose={() => setIsComparisonOpen(false)}
+      />
+
+      {/* Custom Bridge Level Sandbox Editor */}
       <BridgeEditorModal
         isOpen={isSandboxOpen}
         onPlayCustomLevel={handlePlayCustomLevel}
