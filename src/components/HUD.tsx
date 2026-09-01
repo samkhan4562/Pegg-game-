@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   RotateCcw,
   Undo2,
@@ -6,8 +6,13 @@ import {
   VolumeX,
   Compass,
   Menu,
+  Users,
+  Copy,
+  Check,
+  LogOut,
 } from 'lucide-react';
 import { LevelData, Point2D, ValidMove } from '../types';
+import { PegsRoom, sendPegsReaction } from '../firebase/multiplayer';
 
 interface HUDProps {
   currentLevel: LevelData;
@@ -18,11 +23,14 @@ interface HUDProps {
   isMuted: boolean;
   target: Point2D;
   focusedMove?: ValidMove | null;
+  pegsRoom?: PegsRoom | null;
+  myUid?: string;
   onUndo: () => void;
   onRestart: () => void;
   onResetCamera: () => void;
   onToggleMute: () => void;
   onOpenDrawer: () => void;
+  onExitRoom?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -34,12 +42,17 @@ export const HUD: React.FC<HUDProps> = ({
   isMuted,
   target,
   focusedMove,
+  pegsRoom,
+  myUid,
   onUndo,
   onRestart,
   onResetCamera,
   onToggleMute,
   onOpenDrawer,
+  onExitRoom,
 }) => {
+  const [copiedCode, setCopiedCode] = useState(false);
+
   const getDifficultyBadge = (diff: string) => {
     switch (diff) {
       case 'Tutorial':
@@ -63,12 +76,32 @@ export const HUD: React.FC<HUDProps> = ({
     }
   };
 
-  const isUnderPar = movesCount <= currentLevel.parMoves;
+  const isUnderPar = movesCount <= (currentLevel?.parMoves ?? 5);
+  const isMyTurn = !pegsRoom || pegsRoom.currentTurnUid === myUid;
+  const partnerInfo = pegsRoom
+    ? pegsRoom.host.uid === myUid
+      ? pegsRoom.guest
+      : pegsRoom.host
+    : null;
+
+  const handleCopyCode = () => {
+    if (pegsRoom?.code) {
+      navigator.clipboard.writeText(pegsRoom.code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleSendReaction = (emoji: string) => {
+    if (pegsRoom && myUid) {
+      sendPegsReaction(pegsRoom.id, myUid, emoji);
+    }
+  };
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6 z-10 select-none">
       {/* 1. TOP NAVIGATION BAR */}
-      <header className="flex items-center justify-between gap-3 w-full max-w-6xl mx-auto">
+      <header className="flex items-center justify-between gap-2 sm:gap-3 w-full max-w-6xl mx-auto">
         {/* Left: Hamburger Menu Button */}
         <div className="pointer-events-auto flex items-center gap-2">
           <button
@@ -84,7 +117,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Center: Level Name & Difficulty Badge */}
-        <div className="pointer-events-auto glass-panel px-4 py-2 rounded-2xl shadow-xl border border-white/10 flex items-center gap-2.5 max-w-[50vw] sm:max-w-md truncate">
+        <div className="pointer-events-auto glass-panel px-4 py-2 rounded-2xl shadow-xl border border-white/10 flex items-center gap-2.5 max-w-[40vw] sm:max-w-md truncate">
           <span className="text-xs font-bold text-slate-400 font-mono-code shrink-0">
             L{currentLevel?.id ?? levelIndex + 1}
           </span>
@@ -100,6 +133,37 @@ export const HUD: React.FC<HUDProps> = ({
             {currentLevel?.difficulty ?? 'Easy'}
           </span>
         </div>
+
+        {/* Co-op Multiplayer Status Bar (Desktop) */}
+        {pegsRoom && (
+          <div className="hidden lg:flex pointer-events-auto items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-slate-950/90 border border-cyan-500/30 backdrop-blur-xl shadow-xl">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base">{partnerInfo?.avatar || '👤'}</span>
+              <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">
+                {partnerInfo ? partnerInfo.name : 'Waiting for Partner...'}
+              </span>
+            </div>
+            <div className="h-4 w-px bg-slate-800" />
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isMyTurn ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'
+                }`}
+              />
+              <span className={`text-xs font-bold ${isMyTurn ? 'text-cyan-400' : 'text-slate-400'}`}>
+                {isMyTurn ? 'Your Turn to Jump!' : `Waiting for ${partnerInfo?.name || 'Partner'}...`}
+              </span>
+            </div>
+            <button
+              onClick={handleCopyCode}
+              className="ml-1 px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-cyan-300 flex items-center gap-1 cursor-pointer border border-slate-700"
+              title="Copy Room Code"
+            >
+              {copiedCode ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              <span>{pegsRoom.code}</span>
+            </button>
+          </div>
+        )}
 
         {/* Right: Compact Goal Coordinate and Move/Par Counter */}
         <div className="pointer-events-auto flex items-center gap-3 glass-panel px-3.5 py-2 rounded-2xl shadow-xl border border-white/10">
@@ -137,6 +201,29 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </header>
 
+      {/* Co-op Multiplayer Status Bar (Mobile) */}
+      {pegsRoom && (
+        <div className="lg:hidden w-full max-w-sm mx-auto pointer-events-auto flex items-center justify-between px-3 py-1.5 rounded-2xl bg-slate-950/95 border border-cyan-500/30 backdrop-blur-xl shadow-xl mt-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">{partnerInfo?.avatar || '👤'}</span>
+            <span className={`text-[11px] font-bold ${isMyTurn ? 'text-cyan-400' : 'text-slate-400'}`}>
+              {isMyTurn ? 'Your Turn' : `Turn: ${partnerInfo?.name || 'Partner'}`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {['🔥', '💡', '👏', '🧠', '⚡'].map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => handleSendReaction(emoji)}
+                className="text-xs p-1 hover:scale-125 transition-transform active:scale-90 cursor-pointer"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 2. CONSOLIDATED FLOATING BOTTOM DOCK & MATHEMATICAL TRANSFORMATION STATUS */}
       <footer className="w-full max-w-xl mx-auto flex flex-col items-center justify-center gap-2">
         {/* Dynamic 180° Point Reflection Transformation Banner */}
@@ -155,7 +242,7 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             id="hud-dock-undo-btn"
             onClick={onUndo}
-            disabled={!canUndo}
+            disabled={!canUndo || Boolean(pegsRoom)}
             title="Undo Move (Ctrl+Z)"
             className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800/80 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
           >
@@ -199,6 +286,16 @@ export const HUD: React.FC<HUDProps> = ({
           >
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
+
+          {pegsRoom && onExitRoom && (
+            <button
+              onClick={onExitRoom}
+              className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 flex items-center justify-center transition-all cursor-pointer active:scale-95 ml-1"
+              title="Leave Multiplayer Room"
+            >
+              <LogOut size={14} />
+            </button>
+          )}
         </div>
       </footer>
     </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Menu,
@@ -16,49 +16,66 @@ import {
   Footprints,
   CheckCircle2,
   Sparkles,
+  Users,
+  Copy,
+  Check,
+  LogOut,
+  Radio,
 } from 'lucide-react';
 import { BridgeLevelData, Traveler, BridgeBank, BridgeStep } from '../types';
 import { getCrossingDuration } from '../game/bridgeMath';
+import { BridgeRoom, sendBridgeReaction } from '../firebase/multiplayer';
 
 interface BridgeHUDProps {
-  level: BridgeLevelData;
+  level?: BridgeLevelData;
+  currentLevel?: BridgeLevelData;
   levelIndex: number;
   totalLevels: number;
   elapsedTime: number;
-  leftBank: Traveler[];
-  rightBank: Traveler[];
-  torchBank: BridgeBank;
-  selectedIds: string[];
-  history: BridgeStep[];
-  isCrossing: boolean;
-  canUndo: boolean;
+  leftBank?: Traveler[];
+  rightBank?: Traveler[];
+  torchBank?: BridgeBank;
+  selectedIds?: string[];
+  history?: any[];
+  isCrossing?: boolean;
+  canUndo?: boolean;
+  canCross?: boolean;
   isMuted: boolean;
-  onSelectTraveler: (id: string) => void;
-  onExecuteCrossing: () => void;
+  onlineRoom?: BridgeRoom | null;
+  myUid?: string;
+  onSelectTraveler?: (id: string) => void;
+  onExecuteCrossing?: () => void;
+  onCross?: () => void;
   onUndo: () => void;
   onRestart: () => void;
   onResetCamera: () => void;
   onToggleMute: () => void;
   onOpenDrawer: () => void;
-  onOpenComparison: () => void;
-  onOpenHowToPlay: () => void;
+  onOpenComparison?: () => void;
+  onOpenHowToPlay?: () => void;
+  onExitRoom?: () => void;
 }
 
 export const BridgeHUD: React.FC<BridgeHUDProps> = ({
-  level,
+  level: propLevel,
+  currentLevel,
   levelIndex,
   totalLevels,
   elapsedTime,
-  leftBank,
-  rightBank,
-  torchBank,
-  selectedIds,
-  history,
-  isCrossing,
-  canUndo,
+  leftBank = [],
+  rightBank = [],
+  torchBank = 'left',
+  selectedIds = [],
+  history = [],
+  isCrossing = false,
+  canUndo = false,
+  canCross: propCanCross,
   isMuted,
+  onlineRoom,
+  myUid,
   onSelectTraveler,
   onExecuteCrossing,
+  onCross,
   onUndo,
   onRestart,
   onResetCamera,
@@ -66,7 +83,11 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
   onOpenDrawer,
   onOpenComparison,
   onOpenHowToPlay,
+  onExitRoom,
 }) => {
+  const [copiedCode, setCopiedCode] = useState(false);
+  const effectiveLevel = propLevel || currentLevel;
+
   const currentBankTravelers = (torchBank === 'left' ? leftBank : rightBank).filter((t): t is Traveler => Boolean(t && t.id));
   const destinationBankTravelers = (torchBank === 'left' ? rightBank : leftBank).filter((t): t is Traveler => Boolean(t && t.id));
 
@@ -76,13 +97,40 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
 
   const selectedCrossingTime = getCrossingDuration(selectedTravelers);
   const isTorchLeft = torchBank === 'left';
-  const isWithinPar = elapsedTime <= (level?.parTime ?? 60);
+  const parTime = effectiveLevel?.parTime ?? 60;
+  const bridgeCapacity = effectiveLevel?.bridgeCapacity ?? 2;
+  const isWithinPar = elapsedTime <= parTime;
 
-  // Crossing validity
+  // Crossing validity & handler
+  const handleExecute = onExecuteCrossing || onCross || (() => {});
+  const handleSelect = onSelectTraveler || (() => {});
+  
+  const isMyTurnInOnline = !onlineRoom || onlineRoom.currentTurnUid === myUid;
   const canCross =
     !isCrossing &&
     selectedIds.length > 0 &&
-    selectedIds.length <= (level?.bridgeCapacity ?? 2);
+    selectedIds.length <= bridgeCapacity &&
+    isMyTurnInOnline;
+
+  const partnerInfo = onlineRoom
+    ? onlineRoom.host.uid === myUid
+      ? onlineRoom.guest
+      : onlineRoom.host
+    : null;
+
+  const handleCopyCode = () => {
+    if (onlineRoom?.code) {
+      navigator.clipboard.writeText(onlineRoom.code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleSendReaction = (emoji: string) => {
+    if (onlineRoom && myUid) {
+      sendBridgeReaction(onlineRoom.id, myUid, emoji);
+    }
+  };
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 z-10 font-sans">
@@ -104,18 +152,51 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-400">
-                  Level {level?.id ?? 1} of {totalLevels}
+                  Level {effectiveLevel?.id ?? (levelIndex + 1)} of {totalLevels}
                 </span>
                 <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-700 font-medium">
-                  {level?.difficulty ?? 'Easy'}
+                  {effectiveLevel?.difficulty ?? 'Classic'}
                 </span>
               </div>
               <h1 className="text-xs sm:text-sm font-bold text-white tracking-tight truncate max-w-[130px] sm:max-w-[220px]">
-                {level?.name ?? 'Level'}
+                {effectiveLevel?.name ?? 'Midnight Bridge'}
               </h1>
             </div>
           </div>
         </div>
+
+        {/* Center: Online Co-op Turn Indicator (If multiplayer) */}
+        {onlineRoom && (
+          <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-slate-950/90 border border-amber-500/30 backdrop-blur-xl shadow-xl">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base">{partnerInfo?.avatar || '👤'}</span>
+              <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">
+                {partnerInfo ? partnerInfo.name : 'Waiting for Friend...'}
+              </span>
+            </div>
+            <div className="h-4 w-px bg-slate-800" />
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isMyTurnInOnline ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'
+                }`}
+              />
+              <span className={`text-xs font-bold ${isMyTurnInOnline ? 'text-amber-400' : 'text-slate-400'}`}>
+                {isMyTurnInOnline
+                  ? 'Your Turn to Cross!'
+                  : `Waiting for ${partnerInfo?.name || 'Partner'}...`}
+              </span>
+            </div>
+            <button
+              onClick={handleCopyCode}
+              className="ml-1 px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-cyan-300 flex items-center gap-1 cursor-pointer border border-slate-700"
+              title="Copy Room Code"
+            >
+              {copiedCode ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              <span>{onlineRoom.code}</span>
+            </button>
+          </div>
+        )}
 
         {/* Right: Stopwatch & Target Par */}
         <div className="flex items-center gap-2">
@@ -142,20 +223,45 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
                 Par Goal
               </div>
               <div className="font-mono text-xs sm:text-sm font-bold text-emerald-400 leading-none">
-                {level.parTime} <span className="text-[10px] text-slate-400">m</span>
+                {parTime} <span className="text-[10px] text-slate-400">m</span>
               </div>
             </div>
           </div>
 
-          <button
-            onClick={onOpenHowToPlay}
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-950/85 backdrop-blur-xl border border-slate-800 flex items-center justify-center text-slate-300 hover:text-amber-400 hover:border-amber-500/50 hover:bg-slate-900 transition-all shadow-xl cursor-pointer active:scale-95 shrink-0"
-            title="How to Play"
-          >
-            <HelpCircle size={18} />
-          </button>
+          {onOpenHowToPlay && (
+            <button
+              onClick={onOpenHowToPlay}
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-950/85 backdrop-blur-xl border border-slate-800 flex items-center justify-center text-slate-300 hover:text-amber-400 hover:border-amber-500/50 hover:bg-slate-900 transition-all shadow-xl cursor-pointer active:scale-95 shrink-0"
+              title="How to Play"
+            >
+              <HelpCircle size={18} />
+            </button>
+          )}
         </div>
       </header>
+
+      {/* Online Co-op Mobile Turn Bar */}
+      {onlineRoom && (
+        <div className="md:hidden w-full max-w-sm mx-auto pointer-events-auto flex items-center justify-between px-3 py-1.5 rounded-2xl bg-slate-950/95 border border-amber-500/30 backdrop-blur-xl shadow-xl mt-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">{partnerInfo?.avatar || '👤'}</span>
+            <span className={`text-[11px] font-bold ${isMyTurnInOnline ? 'text-amber-400' : 'text-slate-400'}`}>
+              {isMyTurnInOnline ? 'Your Turn' : `Turn: ${partnerInfo?.name || 'Partner'}`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {['🔥', '💡', '👏', '🧠', '⚡'].map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => handleSendReaction(emoji)}
+                className="text-xs p-1 hover:scale-125 transition-transform active:scale-90 cursor-pointer"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ========================================================
           BOTTOM DOCK BAR: CONTROLS & SELECTION TRAY
@@ -178,7 +284,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
             </div>
 
             <div className="text-[11px] font-mono text-slate-400">
-              Select 1-{level.bridgeCapacity} with torch
+              Select 1-{bridgeCapacity} with torch
             </div>
           </div>
 
@@ -189,7 +295,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
               return (
                 <button
                   key={traveler.id}
-                  onClick={() => onSelectTraveler(traveler.id)}
+                  onClick={() => handleSelect(traveler.id)}
                   className={`relative p-2 sm:p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 active:scale-95 ${
                     isSelected
                       ? 'bg-gradient-to-b from-amber-500/20 to-yellow-500/10 border-amber-400 ring-2 ring-amber-400/40 shadow-lg shadow-amber-500/10'
@@ -234,7 +340,7 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
             whileHover={canCross ? { scale: 1.02 } : {}}
             whileTap={canCross ? { scale: 0.98 } : {}}
             disabled={!canCross}
-            onClick={onExecuteCrossing}
+            onClick={handleExecute}
             className={`w-full py-3 px-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all shadow-xl cursor-pointer ${
               canCross
                 ? isTorchLeft
@@ -307,14 +413,16 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
           <div className="h-4 w-px bg-slate-800 mx-0.5" />
 
           {/* Strategy Breakdown Modal */}
-          <button
-            onClick={onOpenComparison}
-            className="px-3 py-2 rounded-full bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer active:scale-95"
-            title="View Strategy Breakdown"
-          >
-            <BarChart3 size={15} />
-            <span>Analysis</span>
-          </button>
+          {onOpenComparison && (
+            <button
+              onClick={onOpenComparison}
+              className="px-3 py-2 rounded-full bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer active:scale-95"
+              title="View Strategy Breakdown"
+            >
+              <BarChart3 size={15} />
+              <span>Analysis</span>
+            </button>
+          )}
 
           {/* Recenter Camera */}
           <button
@@ -337,8 +445,19 @@ export const BridgeHUD: React.FC<BridgeHUDProps> = ({
           >
             {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
+
+          {onlineRoom && onExitRoom && (
+            <button
+              onClick={onExitRoom}
+              className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 flex items-center justify-center transition-all cursor-pointer active:scale-95 ml-1"
+              title="Leave Room"
+            >
+              <LogOut size={14} />
+            </button>
+          )}
         </div>
       </footer>
     </div>
   );
 };
+

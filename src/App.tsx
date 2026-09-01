@@ -38,6 +38,12 @@ import {
   FriendRequest,
   UserPresence,
 } from './firebase/presence';
+import {
+  PegsRoom,
+  subscribeToPegsRoom,
+  makePegsMultiplayerMove,
+  leavePegsRoom,
+} from './firebase/multiplayer';
 
 export default function App() {
   // Master Platform Game View ('hub' | 'pegs' | 'bridge' | 'tictactoe')
@@ -50,6 +56,7 @@ export default function App() {
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequest[]>([]);
   const [targetRoomId, setTargetRoomId] = useState<string | null>(null);
   const [onlinePlayersCount, setOnlinePlayersCount] = useState<number>(1);
+  const [pegsRoom, setPegsRoom] = useState<PegsRoom | null>(null);
 
   // Jumping Pegs: Screen Mode ('menu' | 'game')
   const [screenMode, setScreenMode] = useState<ScreenMode>('menu');
@@ -206,6 +213,42 @@ export default function App() {
     loadLevel(currentLevelIndex);
   }, [currentLevelIndex, loadLevel]);
 
+  // Subscribe to Pegs Room if active
+  useEffect(() => {
+    if (activeGame !== 'pegs' || !targetRoomId) {
+      setPegsRoom(null);
+      return;
+    }
+
+    const unsub = subscribeToPegsRoom(targetRoomId, (room) => {
+      if (room) {
+        setPegsRoom(room);
+        if (room.pegs && Array.isArray(room.pegs) && room.pegs.length > 0) {
+          setPegs(room.pegs);
+        }
+        if (typeof room.movesCount === 'number') {
+          setMovesCount(room.movesCount);
+        }
+        if (room.isVictory) {
+          setIsLevelComplete(true);
+        }
+      } else {
+        setPegsRoom(null);
+      }
+    });
+
+    return () => unsub();
+  }, [activeGame, targetRoomId]);
+
+  const handleExitPegsRoom = useCallback(() => {
+    if (pegsRoom && myUid) {
+      leavePegsRoom(pegsRoom.id, myUid);
+    }
+    setPegsRoom(null);
+    setTargetRoomId(null);
+    loadLevel(0);
+  }, [pegsRoom, myUid, loadLevel]);
+
   // Execute Point-Reflection Move (Synchronously applied when jump animation lands!)
   const handleExecuteMove = useCallback(
     (move: ValidMove) => {
@@ -230,6 +273,11 @@ export default function App() {
       setMovesCount(nextMovesCount);
 
       const targetAchieved = isTargetReached(updatedPegs, currentLevel.target);
+
+      // In multiplayer room, sync move to Firebase
+      if (pegsRoom && myUid) {
+        makePegsMultiplayerMove(pegsRoom.id, move, updatedPegs, myUid, targetAchieved);
+      }
 
       if (targetAchieved) {
         setIsLevelComplete(true);
@@ -493,11 +541,14 @@ export default function App() {
               isMuted={isMuted}
               target={currentLevel.target}
               focusedMove={focusedMove}
+              pegsRoom={pegsRoom}
+              myUid={myUid}
               onUndo={handleUndo}
               onRestart={handleRestart}
               onResetCamera={handleResetCamera}
               onToggleMute={handleToggleMute}
               onOpenDrawer={() => setIsDrawerOpen(true)}
+              onExitRoom={handleExitPegsRoom}
             />
           )}
 

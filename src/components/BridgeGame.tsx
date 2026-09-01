@@ -134,10 +134,24 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
 
   // Initialize on mount
   useEffect(() => {
-    if (!initialRoomId) {
-      loadLevel(0);
+    loadLevel(0);
+  }, [loadLevel]);
+
+  // Sync initialRoomId if prop changes
+  useEffect(() => {
+    if (initialRoomId) {
+      setOnlineRoomId(initialRoomId);
     }
-  }, [initialRoomId, loadLevel]);
+  }, [initialRoomId]);
+
+  const handleExitRoom = useCallback(() => {
+    if (onlineRoom && myUid) {
+      leaveBridgeRoom(onlineRoom.id, myUid);
+    }
+    setOnlineRoom(null);
+    setOnlineRoomId(null);
+    loadLevel(0);
+  }, [onlineRoom, myUid, loadLevel]);
 
   // Handle Traveler Selection
   const handleSelectTraveler = useCallback(
@@ -384,6 +398,7 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
 
       {/* In-Game HUD Controls */}
       <BridgeHUD
+        level={currentLevel}
         currentLevel={currentLevel}
         levelIndex={currentLevelIndex}
         totalLevels={levelList.length}
@@ -393,14 +408,22 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
         leftBank={leftBank}
         rightBank={rightBank}
         isMuted={isMuted}
+        onlineRoom={onlineRoom}
+        myUid={myUid}
+        isCrossing={crossingTravelers !== null}
         canUndo={history.length > 0 && crossingTravelers === null && !isLevelComplete && !onlineRoom}
         canCross={selectedIds.length > 0 && crossingTravelers === null && !isLevelComplete}
+        onSelectTraveler={handleSelectTraveler}
+        onExecuteCrossing={handleCross}
         onCross={handleCross}
         onUndo={handleUndo}
         onRestart={handleRestart}
         onResetCamera={handleResetCamera}
         onToggleMute={onToggleMute}
         onOpenDrawer={() => setIsDrawerOpen(true)}
+        onOpenComparison={() => setIsComparisonOpen(true)}
+        onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
+        onExitRoom={handleExitRoom}
       />
 
       {/* Slide Navigation Drawer */}
