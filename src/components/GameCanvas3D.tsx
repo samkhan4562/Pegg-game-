@@ -138,17 +138,21 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     scene.fog = new THREE.FogExp2(0x0a0c10, 0.022);
 
     // Camera
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
-    // Compute initial bounding center
-    const allInitX = [...pegs.map((p) => p.x), target.x];
-    const allInitY = [...pegs.map((p) => p.y), target.y];
+    const camera = new THREE.PerspectiveCamera(42, width / (height || 1), 0.1, 100);
+    
+    // Compute safe initial bounding center
+    const safePegs = Array.isArray(pegs) && pegs.length > 0 ? pegs : [{ x: 0, y: 0, id: 'p0' }];
+    const safeTarget = target && typeof target.x === 'number' ? target : { x: 0, y: 0 };
+    const allInitX = [...safePegs.map((p) => p.x), safeTarget.x];
+    const allInitY = [...safePegs.map((p) => p.y), safeTarget.y];
     const initMinX = Math.min(...allInitX);
     const initMaxX = Math.max(...allInitX);
     const initMinY = Math.min(...allInitY);
     const initMaxY = Math.max(...allInitY);
-    const initCenterX = (initMinX + initMaxX) / 2;
-    const initCenterZ = (initMinY + initMaxY) / 2;
-    const initMaxSpan = Math.max(initMaxX - initMinX, initMaxY - initMinY, 3.2);
+    const initCenterX = Number.isFinite((initMinX + initMaxX) / 2) ? (initMinX + initMaxX) / 2 : 0;
+    const initCenterZ = Number.isFinite((initMinY + initMaxY) / 2) ? (initMinY + initMaxY) / 2 : 0;
+    const rawSpan = Math.max(initMaxX - initMinX, initMaxY - initMinY, 3.2);
+    const initMaxSpan = Number.isFinite(rawSpan) ? rawSpan : 4.0;
 
     const initCamY = Math.max(8.0, initMaxSpan * 1.55 + 3.0);
     const initCamZ = initCenterZ + Math.max(6.5, initMaxSpan * 1.25 + 2.5);
@@ -978,19 +982,22 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     // Reset active animation state on level load / reset
     activeAnimationRef.current = null;
 
-    // Calculate dynamic bounding box of all pegs and target
-    const allX = [...pegs.map((p) => p.x), target.x];
-    const allY = [...pegs.map((p) => p.y), target.y];
+    // Calculate dynamic safe bounding box of all pegs and target
+    const safePegs = Array.isArray(pegs) && pegs.length > 0 ? pegs : [{ x: 0, y: 0, id: 'p0' }];
+    const safeTarget = target && typeof target.x === 'number' ? target : { x: 0, y: 0 };
+    const allX = [...safePegs.map((p) => p.x), safeTarget.x];
+    const allY = [...safePegs.map((p) => p.y), safeTarget.y];
     const minX = Math.min(...allX);
     const maxX = Math.max(...allX);
     const minY = Math.min(...allY);
     const maxY = Math.max(...allY);
 
-    const centerX = (minX + maxX) / 2;
-    const centerZ = (minY + maxY) / 2;
+    const centerX = Number.isFinite((minX + maxX) / 2) ? (minX + maxX) / 2 : 0;
+    const centerZ = Number.isFinite((minY + maxY) / 2) ? (minY + maxY) / 2 : 0;
     const spanX = maxX - minX;
     const spanZ = maxY - minY;
-    const maxSpan = Math.max(spanX, spanZ, 3.2);
+    const rawSpan = Math.max(spanX, spanZ, 3.2);
+    const maxSpan = Number.isFinite(rawSpan) ? rawSpan : 4.0;
 
     const targetCamY = Math.max(8.0, maxSpan * 1.55 + 3.0);
     const targetCamZ = centerZ + Math.max(6.5, maxSpan * 1.25 + 2.5);
@@ -1002,7 +1009,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     const endTarget = new THREE.Vector3(centerX, 0, centerZ);
 
     const startTime = performance.now();
-    const duration = 600;
+    const duration = 500;
 
     let animId: number;
     const easeCamera = () => {
@@ -1024,7 +1031,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [cameraResetTrigger, pegs, target]);
+  }, [cameraResetTrigger, levelCameraPos]);
 
   // 10. Pointer Event Handlers (Click & Hover)
   const handlePointerDown = (e: React.PointerEvent) => {

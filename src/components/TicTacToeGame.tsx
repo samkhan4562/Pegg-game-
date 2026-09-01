@@ -294,24 +294,24 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const isMyTurnOnline = mode === 'online' ? activeTurn === myOnlineSymbol : true;
 
   return (
-    <div className="fixed inset-0 w-full h-full bg-[#05070a] text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden font-sans selection:bg-cyan-500/30">
+    <div className="fixed inset-0 w-full h-full bg-slate-50 dark:bg-[#070a12] text-slate-900 dark:text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden font-sans select-none transition-colors duration-300">
       {/* Background ambient lighting */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-[130px]" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-[130px]" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-400/15 dark:bg-emerald-500/10 rounded-full blur-[120px]" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-400/15 dark:bg-cyan-500/10 rounded-full blur-[120px]" />
       </div>
 
       {/* ========================================================
-          HEADER NAVIGATION
+          HEADER NAVIGATION (Apple Glass Style)
          ======================================================== */}
-      <header className="relative z-10 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="relative z-10 w-full max-w-5xl mx-auto px-4 py-3 sm:py-5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => {
               if (onlineRoom) handleLeaveOnlineRoom();
               onBackToHub();
             }}
-            className="w-10 h-10 rounded-2xl bg-slate-900/80 border border-slate-700/80 hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition-all shadow-md cursor-pointer"
+            className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-white/60 dark:border-white/10 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-emerald-500 flex items-center justify-center transition-all shadow-md cursor-pointer active:scale-95"
             title="Back to Arcade"
           >
             <ArrowLeft size={18} />
@@ -319,16 +319,16 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
 
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
                 Tic-Tac-Toe Pro
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono font-bold">
-                  कांटा और ज़ीरो
-                </span>
               </h1>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold">
+                PRO
+              </span>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
               {mode === 'ai'
-                ? `Playing vs Smart AI (${difficulty})`
+                ? `Playing vs Minimax AI (${difficulty})`
                 : mode === 'local'
                 ? 'Pass & Play Local 2-Player'
                 : onlineRoom
@@ -338,15 +338,17 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           </div>
         </div>
 
-        {/* Header Actions */}
+        {/* Header Actions (Compact Icon Buttons) */}
         <div className="flex items-center gap-2">
           {onOpenFriends && (
             <button
               onClick={onOpenFriends}
-              className="px-3.5 py-2 rounded-2xl bg-slate-900/80 border border-slate-700/80 hover:border-cyan-500/50 hover:bg-slate-800 text-cyan-400 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-white/60 dark:border-white/10 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-emerald-500 flex items-center justify-center transition-all shadow-md cursor-pointer active:scale-95 relative group"
+              title="Friends & Multiplayer"
+              aria-label="Friends and Multiplayer"
             >
-              <Users size={15} />
-              <span className="hidden sm:inline">Friends</span>
+              <Users size={18} className="group-hover:scale-110 transition-transform" />
+              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
             </button>
           )}
 
@@ -356,7 +358,12 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
               setIsMuted(nextMuted);
               sound.setMuted(nextMuted);
             }}
-            className="w-10 h-10 rounded-2xl bg-slate-900/80 border border-slate-700/80 hover:bg-slate-800 text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-md"
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95 ${
+              isMuted
+                ? 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-white/10 text-rose-500'
+                : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:text-emerald-500'
+            }`}
+            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
           </button>

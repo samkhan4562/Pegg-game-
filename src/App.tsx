@@ -452,6 +452,9 @@ export default function App() {
             sound.playSelect();
             setTargetRoomId(null);
             setActiveGame(game);
+            if (game === 'pegs') {
+              setScreenMode('game');
+            }
           }}
           onOpenFriends={() => setIsFriendsOpen(true)}
           onlineCount={onlinePlayersCount}
@@ -497,17 +500,17 @@ export default function App() {
           RENDER VIEW: 4. GAME 1: THE JUMPING PEGS 3D
          ========================================================== */}
       {activeGame === 'pegs' && (
-        <div className="relative w-screen h-screen bg-[#0a0c10] overflow-hidden select-none font-sans text-slate-100">
+        <div className="fixed inset-0 w-screen h-screen bg-[#0a0c10] overflow-hidden select-none font-sans text-slate-100 touch-none">
           {/* 3D WebGL Canvas Layer */}
           <GameCanvas3D
             pegs={pegs}
-            target={currentLevel.target}
+            target={currentLevel?.target || { x: 0, y: 0 }}
             selectedPegId={selectedPegId}
             validMoves={validMoves}
             isAnimating={isAnimating}
             isMenuMode={screenMode === 'menu'}
             cameraResetTrigger={cameraResetTrigger}
-            levelCameraPos={currentLevel.cameraPos}
+            levelCameraPos={currentLevel?.cameraPos}
             onSelectPeg={setSelectedPegId}
             onExecuteMove={handleExecuteMove}
             onFocusMove={setFocusedMove}

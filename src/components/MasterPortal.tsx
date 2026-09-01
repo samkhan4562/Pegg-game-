@@ -1,18 +1,17 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import {
-  Compass,
-  Flame,
-  Star,
   Sparkles,
-  ArrowRight,
+  Play,
   Volume2,
   VolumeX,
-  Grid,
   Users,
+  Star,
   Swords,
-  Globe,
-  Radio,
+  Grid3X3,
+  Flame,
+  CircleDot,
+  Compass,
 } from 'lucide-react';
 import { ActiveGameView } from '../types';
 
@@ -42,93 +41,128 @@ export const MasterPortal: React.FC<MasterPortalProps> = ({
   const totalEarnedStars = pegsStars + bridgeStars;
   const totalPossibleStars = maxPegsStars + maxBridgeStars;
 
+  const games = [
+    {
+      id: 'pegs' as ActiveGameView,
+      number: '01',
+      title: 'The Jumping Pegs 3D',
+      subtitle: 'Point-Reflection Parity Physics',
+      description: 'Solve discrete mathematics puzzles using 180° geometric reflections and parity invariants.',
+      icon: CircleDot,
+      themeColor: 'cyan',
+      stars: `${pegsStars} / ${maxPegsStars}`,
+      gradient: 'from-cyan-500/20 to-blue-500/20',
+      borderHover: 'hover:border-cyan-400',
+      badgeBg: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+      btnBg: 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-cyan-500/20 hover:from-cyan-400 hover:to-blue-500',
+    },
+    {
+      id: 'bridge' as ActiveGameView,
+      number: '02',
+      title: 'Midnight Bridge & Torch',
+      subtitle: '17-Minute Bottleneck Scheduling',
+      description: 'Navigate travelers safely across the canyon bridge before the flickering torch flame dies.',
+      icon: Flame,
+      themeColor: 'amber',
+      stars: `${bridgeStars} / ${maxBridgeStars}`,
+      gradient: 'from-amber-500/20 to-yellow-500/20',
+      borderHover: 'hover:border-amber-400',
+      badgeBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+      btnBg: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-amber-500/20 hover:from-amber-400 hover:to-yellow-400 font-extrabold',
+    },
+    {
+      id: 'tictactoe' as ActiveGameView,
+      number: '03',
+      title: 'Tic-Tac-Toe Pro',
+      subtitle: 'Minimax AI & Live 1v1 Arena',
+      description: 'Battle smart AI with minimax depth logic, local pass & play, or online realtime rooms.',
+      icon: Swords,
+      themeColor: 'emerald',
+      stars: 'Live 1v1',
+      gradient: 'from-emerald-500/20 to-teal-500/20',
+      borderHover: 'hover:border-emerald-400',
+      badgeBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+      btnBg: 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-emerald-500/20 hover:from-emerald-400 hover:to-teal-500',
+    },
+  ];
+
   return (
-    <div className="fixed inset-0 w-full h-full bg-[#05070a] text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden selection:bg-cyan-500/30 font-sans touch-pan-y z-0">
-      {/* Background Ambient Lighting Mesh */}
+    <div className="fixed inset-0 w-full h-full bg-slate-50 dark:bg-[#070a12] text-slate-900 dark:text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden font-sans select-none z-0 transition-colors duration-300">
+      {/* Apple Frosted Ambient Background Orbs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-[120px]" />
-        <div className="absolute top-1/3 -right-20 w-96 h-96 bg-amber-500/10 rounded-full blur-[140px]" />
-        <div className="absolute -bottom-20 left-1/3 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[160px]" />
+        <div className="absolute -top-32 left-1/4 w-96 h-96 bg-cyan-400/15 dark:bg-cyan-500/10 rounded-full blur-[100px]" />
+        <div className="absolute top-1/3 -right-24 w-96 h-96 bg-amber-400/15 dark:bg-amber-500/10 rounded-full blur-[120px]" />
+        <div className="absolute -bottom-24 left-1/3 w-[500px] h-[500px] bg-indigo-400/15 dark:bg-indigo-500/10 rounded-full blur-[140px]" />
+        
         {/* Subtle grid pattern */}
         <div
-          className="absolute inset-0 opacity-[0.03]"
+          className="absolute inset-0 opacity-[0.03] dark:opacity-[0.04]"
           style={{
             backgroundImage:
-              'linear-gradient(#ffffff 1px, transparent 1px), linear-gradient(90deg, #ffffff 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
+              'linear-gradient(#000000 1px, transparent 1px), linear-gradient(90deg, #000000 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
           }}
         />
       </div>
 
       {/* ========================================================
-          GLOBAL TOP NAVIGATION BAR
+          GLOBAL TOP NAVIGATION BAR (Apple Glass Style)
          ======================================================== */}
-      <header className="relative z-10 w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+      <header className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex items-center justify-between">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-indigo-500/20 to-amber-500/20 border border-slate-700/80 backdrop-blur-xl flex items-center justify-center text-cyan-400 shadow-lg shadow-black/40">
-            <Compass size={22} />
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-white/60 dark:border-white/10 backdrop-blur-2xl flex items-center justify-center text-cyan-600 dark:text-cyan-400 shadow-lg">
+            <Compass size={22} className="animate-spin-slow" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold text-white tracking-tight">
-                Axiom Labs
+              <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
+                Axiom Arcade
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono font-bold">
-                PRO v5.0
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-bold">
+                PRO
               </span>
             </div>
-            <p className="text-xs text-slate-400 font-medium">
-              3D Mathematical Puzzles &amp; Real-time Multiplayer Arena
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+              3D Mathematical Puzzles &amp; Multiplayer Arena
             </p>
           </div>
         </div>
 
-        {/* Global Stats, Friends & SFX Control */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          {/* Friends & Live Community Button */}
+        {/* Global Quick Action Icon Dock */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Friends & Multiplayer (Clean Apple Glass Icon Button) */}
           <button
             onClick={onOpenFriends}
-            className="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-xl border border-cyan-500/40 hover:border-cyan-400 rounded-2xl px-3.5 py-2 flex items-center gap-2 shadow-lg shadow-black/40 text-cyan-300 transition-all cursor-pointer group"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-white/80 dark:bg-slate-900/80 hover:bg-white dark:hover:bg-slate-800 backdrop-blur-2xl border border-white/60 dark:border-white/10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:text-cyan-500 transition-all shadow-lg cursor-pointer active:scale-95 group relative"
+            title="Friends & Multiplayer Hub"
+            aria-label="Friends and Multiplayer"
           >
-            <div className="relative">
-              <Users size={16} className="text-cyan-400" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
-            </div>
-            <div className="text-left hidden sm:block">
-              <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
-                Community
-              </div>
-              <div className="text-xs font-bold text-white flex items-center gap-1">
-                Friends List
-              </div>
-            </div>
+            <Users size={18} className="group-hover:scale-110 transition-transform" />
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
           </button>
 
-          {/* Master Star Registry */}
-          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-700/60 rounded-2xl px-3.5 py-2 flex items-center gap-2 shadow-lg shadow-black/40">
-            <Star size={16} className="text-amber-400 fill-amber-400" />
-            <div className="text-right">
-              <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
-                Stars
-              </div>
-              <div className="font-mono text-xs sm:text-sm font-bold text-white">
-                <span className="text-amber-400">{totalEarnedStars}</span>
-                <span className="text-[10px] text-slate-500"> / {totalPossibleStars}</span>
-              </div>
-            </div>
+          {/* Master Stars Registry (Compact Apple Glass Chip) */}
+          <div
+            className="h-10 sm:h-11 px-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/60 dark:border-white/10 flex items-center gap-1.5 shadow-lg"
+            title={`Total Earned Stars: ${totalEarnedStars} of ${totalPossibleStars}`}
+          >
+            <Star size={16} className="text-amber-500 fill-amber-500" />
+            <span className="font-mono text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white">
+              {totalEarnedStars}
+            </span>
           </div>
 
-          {/* Sound Toggle */}
+          {/* Sound Toggle (Clean Apple Glass Icon Button) */}
           <button
             onClick={onToggleMute}
-            className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all cursor-pointer shadow-lg shadow-black/40 active:scale-95 ${
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl border backdrop-blur-2xl flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
               isMuted
-                ? 'bg-slate-900/80 border-slate-700/60 text-slate-500 hover:text-slate-300'
-                : 'bg-slate-900/80 border-slate-700/60 text-cyan-400 hover:border-cyan-500/50 hover:bg-slate-800'
+                ? 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-white/10 text-rose-500'
+                : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:text-cyan-500 hover:bg-white dark:hover:bg-slate-800'
             }`}
             title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+            aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
@@ -136,188 +170,98 @@ export const MasterPortal: React.FC<MasterPortalProps> = ({
       </header>
 
       {/* ========================================================
-          HERO TITLE & INTRO
+          MAIN CATALOG AREA
          ======================================================== */}
-      <main className="relative z-10 w-full max-w-7xl mx-auto px-6 py-4 flex-1 flex flex-col justify-center">
-        <div className="text-center max-w-3xl mx-auto mb-8">
+      <main className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 py-2 sm:py-4 flex-1 flex flex-col justify-center">
+        {/* Subtle Headline */}
+        <div className="text-center max-w-2xl mx-auto mb-6 sm:mb-8">
           <motion.div
-            initial={{ opacity: 0, y: -12 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-300 mb-3 shadow-md"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 dark:bg-slate-900/80 border border-white/60 dark:border-white/10 text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-2 shadow-sm backdrop-blur-xl"
           >
-            <Sparkles size={14} className="text-cyan-400" />
-            <span>Interactive 3D Discrete Math • Real-time Multiplayer • Instant Matchmaking</span>
+            <Sparkles size={13} className="text-cyan-500" />
+            <span>Interactive 3D Discrete Math • Real-time Multiplayer</span>
           </motion.div>
 
           <motion.h1
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight mb-2"
+            transition={{ delay: 0.05 }}
+            className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-tight"
           >
-            Axiom Labs Arcade
+            Choose Your Arena
           </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-2xl mx-auto"
-          >
-            Play solo puzzle campaigns, challenge AI bots, or create multiplayer rooms to battle live opponents with real-time Firebase sync.
-          </motion.p>
         </div>
 
         {/* ========================================================
-            MASTER 3-MODULE ARCADE CATALOG MATRIX
+            APPLE GLASS 3-MODULE CARDS
            ======================================================== */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto w-full mb-10">
-          {/* ====================================================
-              GAME CARD 1: THE JUMPING PEGS 3D
-             ==================================================== */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="relative group rounded-3xl bg-gradient-to-b from-slate-800/90 to-slate-900/90 border border-cyan-500/30 hover:border-cyan-400/80 p-6 flex flex-col justify-between transition-all duration-300 shadow-xl shadow-cyan-950/20 hover:shadow-2xl hover:shadow-cyan-500/15 overflow-hidden"
-          >
-            <div className="absolute -top-24 -right-24 w-44 h-44 bg-cyan-500/15 rounded-full blur-3xl group-hover:bg-cyan-500/25 transition-all" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 w-full">
+          {games.map((game, idx) => {
+            const Icon = game.icon;
+            return (
+              <motion.div
+                key={game.id}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.08 * idx }}
+                className={`relative group rounded-3xl bg-white/75 dark:bg-slate-900/75 backdrop-blur-2xl border border-white/60 dark:border-white/10 ${game.borderHover} p-5 sm:p-6 flex flex-col justify-between transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1 overflow-hidden`}
+              >
+                {/* Background Ambient Glow */}
+                <div
+                  className={`absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br ${game.gradient} rounded-full blur-3xl group-hover:scale-125 transition-transform duration-500 pointer-events-none`}
+                />
 
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-xs font-bold uppercase tracking-wider">
-                  Game 01
-                </span>
-                <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-slate-950/60 border border-slate-800 font-mono text-xs text-amber-400 font-bold">
-                  <Star size={13} className="fill-amber-400" />
-                  <span>{pegsStars} / {maxPegsStars} ★</span>
+                <div>
+                  {/* Top Row: Game Badge & Stats */}
+                  <div className="flex items-center justify-between mb-4">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide border ${game.badgeBg}`}
+                    >
+                      Game {game.number}
+                    </span>
+
+                    <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 font-mono text-xs text-amber-500 font-bold">
+                      <Star size={12} className="fill-amber-500" />
+                      <span>{game.stars}</span>
+                    </div>
+                  </div>
+
+                  {/* Visual 3D Icon Header */}
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center text-slate-800 dark:text-slate-100 mb-3 shadow-inner group-hover:scale-110 transition-transform">
+                    <Icon size={24} />
+                  </div>
+
+                  {/* Title & Subtitle */}
+                  <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-1">
+                    {game.title}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                    {game.description}
+                  </p>
                 </div>
-              </div>
 
-              <h2 className="text-xl font-extrabold text-white tracking-tight group-hover:text-cyan-300 transition-colors mb-1.5">
-                The Jumping Pegs 3D
-              </h2>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                MoMath point-reflections $(C = 2B - A)$ with Klein 4-group parity invariants and parabolic jump trajectory physics.
-              </p>
-
-              <div className="flex flex-col gap-1.5 mb-5 text-[11px] text-slate-300">
-                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-center gap-2">
-                  <Grid size={14} className="text-cyan-400 shrink-0" />
-                  <span>Point-Reflection $C=2B-A$</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => onSelectGame('pegs')}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer active:scale-98"
-            >
-              <span>Launch Jumping Pegs</span>
-              <ArrowRight size={15} />
-            </button>
-          </motion.div>
-
-          {/* ====================================================
-              GAME CARD 2: MIDNIGHT BRIDGE & TORCH
-             ==================================================== */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="relative group rounded-3xl bg-gradient-to-b from-slate-800/90 to-slate-900/90 border border-amber-500/30 hover:border-amber-400/80 p-6 flex flex-col justify-between transition-all duration-300 shadow-xl shadow-amber-950/20 hover:shadow-2xl hover:shadow-amber-500/15 overflow-hidden"
-          >
-            <div className="absolute -top-24 -right-24 w-44 h-44 bg-amber-500/15 rounded-full blur-3xl group-hover:bg-amber-500/25 transition-all" />
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
-                  Game 02
-                </span>
-                <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-slate-950/60 border border-slate-800 font-mono text-xs text-amber-400 font-bold">
-                  <Star size={13} className="fill-amber-400" />
-                  <span>{bridgeStars} / {maxBridgeStars} ★</span>
-                </div>
-              </div>
-
-              <h2 className="text-xl font-extrabold text-white tracking-tight group-hover:text-amber-300 transition-colors mb-1.5">
-                Midnight Bridge &amp; Torch
-              </h2>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                The 17-minute bottleneck theorem: strategic paired river crossings under dynamic torch constraints.
-              </p>
-
-              <div className="flex flex-col gap-1.5 mb-5 text-[11px] text-slate-300">
-                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-center gap-2">
-                  <Flame size={14} className="text-amber-400 shrink-0" />
-                  <span>Bottleneck $\max(T_A, T_B)$</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => onSelectGame('bridge')}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition-all cursor-pointer active:scale-98"
-            >
-              <span>Launch Midnight Bridge</span>
-              <ArrowRight size={15} />
-            </button>
-          </motion.div>
-
-          {/* ====================================================
-              GAME CARD 3: TIC-TAC-TOE PRO (कांटा और ज़ीरो)
-             ==================================================== */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="relative group rounded-3xl bg-gradient-to-b from-slate-800/90 to-slate-900/90 border border-emerald-500/30 hover:border-emerald-400/80 p-6 flex flex-col justify-between transition-all duration-300 shadow-xl shadow-emerald-950/20 hover:shadow-2xl hover:shadow-emerald-500/15 overflow-hidden"
-          >
-            <div className="absolute -top-24 -right-24 w-44 h-44 bg-emerald-500/15 rounded-full blur-3xl group-hover:bg-emerald-500/25 transition-all" />
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
-                  Game 03 • Real-Time
-                </span>
-                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-xl bg-slate-950/60 border border-slate-800 font-mono text-xs text-emerald-400 font-bold">
-                  <Globe size={13} />
-                  <span>MULTIPLAYER</span>
-                </div>
-              </div>
-
-              <h2 className="text-xl font-extrabold text-white tracking-tight group-hover:text-emerald-300 transition-colors mb-1.5">
-                Tic-Tac-Toe Pro
-              </h2>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                कांटा और ज़ीरो (X &amp; O) with Smart AI Bot (Minimax), Local Pass &amp; Play, and Online 1v1 Rooms via Firebase Realtime Sync.
-              </p>
-
-              <div className="flex flex-col gap-1.5 mb-5 text-[11px] text-slate-300">
-                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-center gap-2">
-                  <Swords size={14} className="text-emerald-400 shrink-0" />
-                  <span>Minimax AI • Online Rooms • Quick Match</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => onSelectGame('tictactoe')}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 transition-all cursor-pointer active:scale-98"
-            >
-              <span>Play Tic-Tac-Toe Pro</span>
-              <ArrowRight size={15} />
-            </button>
-          </motion.div>
+                {/* Action Button (Icon-focused & Clear) */}
+                <button
+                  onClick={() => onSelectGame(game.id)}
+                  className={`w-full py-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95 ${game.btnBg}`}
+                >
+                  <Play size={15} className="fill-current" />
+                  <span>Play {game.title.split(' ')[0]}</span>
+                </button>
+              </motion.div>
+            );
+          })}
         </div>
       </main>
 
       {/* ========================================================
-          GLOBAL FOOTER
+          CLEAN APPLE FOOTER
          ======================================================== */}
-      <footer className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-4 pb-8 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
-        <div>Axiom Labs • 3D Mathematical Logic Arcade &amp; Realtime Multiplayer Arena</div>
-        <div>Point-Reflection • Bottleneck Scheduling • Online Firebase Realtime Sync</div>
+      <footer className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-1 text-[11px] text-slate-400 dark:text-slate-500 border-t border-slate-200/60 dark:border-slate-800/60">
+        <div>Axiom Arcade • Discrete Math &amp; Real-time Multiplayer</div>
+        <div>Point-Reflection • Bottleneck Scheduling • Firebase Sync</div>
       </footer>
     </div>
   );

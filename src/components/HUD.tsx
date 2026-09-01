@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   RotateCcw,
   Undo2,
   Volume2,
   VolumeX,
-  Compass,
   Menu,
-  Users,
   Copy,
   Check,
   LogOut,
+  Camera,
+  Smile,
+  Compass,
 } from 'lucide-react';
 import { LevelData, Point2D, ValidMove } from '../types';
 import { PegsRoom, sendPegsReaction } from '../firebase/multiplayer';
@@ -40,7 +42,7 @@ export const HUD: React.FC<HUDProps> = ({
   movesCount,
   canUndo,
   isMuted,
-  target,
+  target = { x: 0, y: 0 },
   focusedMove,
   pegsRoom,
   myUid,
@@ -52,27 +54,24 @@ export const HUD: React.FC<HUDProps> = ({
   onExitRoom,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const getDifficultyBadge = (diff: string) => {
     switch (diff) {
       case 'Tutorial':
-        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
       case 'Easy':
-        return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+        return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
       case 'Easy-Medium':
-        return 'bg-teal-500/20 text-teal-300 border-teal-500/30';
       case 'Medium':
-        return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+        return 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20';
       case 'Medium-Hard':
-        return 'bg-orange-500/20 text-orange-300 border-orange-500/30';
       case 'Hard':
-        return 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+        return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
       case 'Master':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
       case 'Grandmaster':
-        return 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30';
+        return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
       default:
-        return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
+        return 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20';
     }
   };
 
@@ -95,203 +94,205 @@ export const HUD: React.FC<HUDProps> = ({
   const handleSendReaction = (emoji: string) => {
     if (pegsRoom && myUid) {
       sendPegsReaction(pegsRoom.id, myUid, emoji);
+      setShowEmojiPicker(false);
     }
   };
 
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6 z-10 select-none">
-      {/* 1. TOP NAVIGATION BAR */}
-      <header className="flex items-center justify-between gap-2 sm:gap-3 w-full max-w-6xl mx-auto">
-        {/* Left: Hamburger Menu Button */}
-        <div className="pointer-events-auto flex items-center gap-2">
+    <div className="fixed inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 z-20 font-sans select-none overflow-hidden">
+      {/* ========================================================
+          TOP NAVIGATION BAR (Apple Frosted Glass)
+         ======================================================== */}
+      <header className="w-full max-w-5xl mx-auto flex items-center justify-between pointer-events-auto gap-2">
+        {/* Left: Menu & Level Name */}
+        <div className="flex items-center gap-2">
           <button
             id="hud-hamburger-btn"
             onClick={onOpenDrawer}
             aria-label="Open Navigation Menu"
             title="Menu & Catalog"
-            className="flex items-center gap-2 glass-panel px-3.5 py-2.5 rounded-2xl shadow-xl hover:bg-slate-800/80 border border-white/10 text-slate-200 hover:text-white transition-all cursor-pointer group"
+            className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/60 dark:border-white/10 flex items-center justify-center text-slate-800 dark:text-slate-200 hover:text-cyan-500 hover:scale-105 active:scale-95 transition-all shadow-lg cursor-pointer shrink-0"
           >
-            <Menu size={20} className="text-amber-400 group-hover:scale-110 transition-transform" />
-            <span className="text-xs font-bold tracking-wide uppercase hidden sm:inline">Menu</span>
+            <Menu size={18} />
           </button>
+
+          <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-2xl px-3 py-1.5 flex items-center gap-2 shadow-lg">
+            <span className="text-[11px] font-extrabold text-cyan-600 dark:text-cyan-400 font-mono">
+              L{currentLevel?.id ?? levelIndex + 1}
+            </span>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <h1 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate max-w-[90px] sm:max-w-[150px]">
+              {currentLevel?.name ?? 'Level'}
+            </h1>
+            <span
+              className={`hidden sm:inline-block text-[9px] font-bold px-2 py-0.5 rounded-full border ${getDifficultyBadge(
+                currentLevel?.difficulty ?? 'Easy'
+              )}`}
+            >
+              {currentLevel?.difficulty ?? 'Easy'}
+            </span>
+          </div>
         </div>
 
-        {/* Center: Level Name & Difficulty Badge */}
-        <div className="pointer-events-auto glass-panel px-4 py-2 rounded-2xl shadow-xl border border-white/10 flex items-center gap-2.5 max-w-[40vw] sm:max-w-md truncate">
-          <span className="text-xs font-bold text-slate-400 font-mono-code shrink-0">
-            L{currentLevel?.id ?? levelIndex + 1}
-          </span>
-          <div className="h-3.5 w-px bg-slate-700/60 shrink-0" />
-          <h1 className="text-xs sm:text-sm font-bold text-slate-100 truncate tracking-tight">
-            {currentLevel?.name ?? 'Level'}
-          </h1>
-          <span
-            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${getDifficultyBadge(
-              currentLevel?.difficulty ?? 'Easy'
-            )}`}
-          >
-            {currentLevel?.difficulty ?? 'Easy'}
-          </span>
-        </div>
-
-        {/* Co-op Multiplayer Status Bar (Desktop) */}
+        {/* Center: Co-op Multiplayer Turn Indicator (Integrated into Header, Non-obstructive) */}
         {pegsRoom && (
-          <div className="hidden lg:flex pointer-events-auto items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-slate-950/90 border border-cyan-500/30 backdrop-blur-xl shadow-xl">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-cyan-500/30 backdrop-blur-2xl shadow-lg">
             <div className="flex items-center gap-1.5">
-              <span className="text-base">{partnerInfo?.avatar || '👤'}</span>
-              <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">
-                {partnerInfo ? partnerInfo.name : 'Waiting for Partner...'}
-              </span>
-            </div>
-            <div className="h-4 w-px bg-slate-800" />
-            <div className="flex items-center gap-1.5">
+              <span className="text-sm">{partnerInfo?.avatar || '👤'}</span>
               <span
                 className={`w-2 h-2 rounded-full ${
-                  isMyTurn ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'
+                  isMyTurn ? 'bg-cyan-500 animate-pulse' : 'bg-slate-400'
                 }`}
               />
-              <span className={`text-xs font-bold ${isMyTurn ? 'text-cyan-400' : 'text-slate-400'}`}>
-                {isMyTurn ? 'Your Turn to Jump!' : `Waiting for ${partnerInfo?.name || 'Partner'}...`}
+              <span
+                className={`text-xs font-bold ${
+                  isMyTurn
+                    ? 'text-cyan-600 dark:text-cyan-400'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                {isMyTurn ? 'Your Turn' : partnerInfo?.name ? `${partnerInfo.name}'s Turn` : 'Waiting...'}
               </span>
             </div>
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
             <button
               onClick={handleCopyCode}
-              className="ml-1 px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-cyan-300 flex items-center gap-1 cursor-pointer border border-slate-700"
+              className="px-1.5 py-0.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-[10px] font-mono text-cyan-700 dark:text-cyan-300 flex items-center gap-1 cursor-pointer border border-cyan-500/20 transition-all"
               title="Copy Room Code"
             >
-              {copiedCode ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              {copiedCode ? <Check size={10} className="text-emerald-500" /> : <Copy size={10} />}
               <span>{pegsRoom.code}</span>
             </button>
           </div>
         )}
 
-        {/* Right: Compact Goal Coordinate and Move/Par Counter */}
-        <div className="pointer-events-auto flex items-center gap-3 glass-panel px-3.5 py-2 rounded-2xl shadow-xl border border-white/10">
-          {/* Goal Coordinate */}
-          <div className="flex items-center gap-2 border-r border-slate-700/60 pr-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400/50" />
-            <div className="flex flex-col">
-              <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-400">
-                Goal
-              </span>
-              <span className="font-mono-code font-bold text-xs sm:text-sm text-slate-100">
-                ({target.x}, {target.y})
+        {/* Right: Goal Coordinate & Moves / Par Counter */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5 bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl px-3 py-1.5 rounded-2xl shadow-lg border border-white/60 dark:border-white/10">
+            {/* Goal Point */}
+            <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-700/60 pr-2.5">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                ({target?.x ?? 0}, {target?.y ?? 0})
               </span>
             </div>
-          </div>
 
-          {/* Moves / Par Counter */}
-          <div className="flex items-center gap-2 pl-0.5">
-            <div className="flex flex-col items-end">
-              <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400">
-                Moves / Par
+            {/* Moves Count */}
+            <div className="flex items-center gap-1">
+              <span
+                className={`font-mono font-extrabold text-xs sm:text-sm ${
+                  isUnderPar ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                {movesCount}
               </span>
-              <div className="flex items-baseline gap-1">
-                <span
-                  className={`font-mono-code font-extrabold text-xs sm:text-sm ${
-                    isUnderPar ? 'text-emerald-300' : 'text-amber-400'
-                  }`}
-                >
-                  {movesCount}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono-code">/ {currentLevel?.parMoves ?? 5}</span>
-              </div>
+              <span className="text-[10px] text-slate-400 font-mono">/ {currentLevel?.parMoves ?? 5}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Co-op Multiplayer Status Bar (Mobile) */}
-      {pegsRoom && (
-        <div className="lg:hidden w-full max-w-sm mx-auto pointer-events-auto flex items-center justify-between px-3 py-1.5 rounded-2xl bg-slate-950/95 border border-cyan-500/30 backdrop-blur-xl shadow-xl mt-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm">{partnerInfo?.avatar || '👤'}</span>
-            <span className={`text-[11px] font-bold ${isMyTurn ? 'text-cyan-400' : 'text-slate-400'}`}>
-              {isMyTurn ? 'Your Turn' : `Turn: ${partnerInfo?.name || 'Partner'}`}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {['🔥', '💡', '👏', '🧠', '⚡'].map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => handleSendReaction(emoji)}
-                className="text-xs p-1 hover:scale-125 transition-transform active:scale-90 cursor-pointer"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 2. CONSOLIDATED FLOATING BOTTOM DOCK & MATHEMATICAL TRANSFORMATION STATUS */}
-      <footer className="w-full max-w-xl mx-auto flex flex-col items-center justify-center gap-2">
-        {/* Dynamic 180° Point Reflection Transformation Banner */}
+      {/* ========================================================
+          BOTTOM DOCK BAR: MATHEMATICAL STATUS & CONTROLS
+         ======================================================== */}
+      <footer className="w-full max-w-lg mx-auto flex flex-col items-center justify-center gap-2 pointer-events-auto pb-1 sm:pb-2">
+        {/* Dynamic Point Reflection Formula Banner */}
         {focusedMove && (
-          <div className="pointer-events-auto px-4 py-2 rounded-2xl bg-slate-950/90 border border-cyan-500/40 text-xs text-slate-200 flex flex-wrap items-center justify-center gap-2 shadow-2xl backdrop-blur-xl animate-fade-in">
-            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
-            <span className="font-bold text-cyan-300">180° Point Reflection:</span>
-            <span className="font-mono text-amber-300 font-bold tracking-tight">
-              C({focusedMove.dest.x}, {focusedMove.dest.y}) = 2·Pivot({focusedMove.pivot.x}, {focusedMove.pivot.y}) - Peg({focusedMove.from.x}, {focusedMove.from.y})
+          <div className="px-3.5 py-1.5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-cyan-500/40 text-[11px] text-slate-800 dark:text-slate-200 flex items-center justify-center gap-2 shadow-xl backdrop-blur-2xl">
+            <span className="font-bold text-cyan-600 dark:text-cyan-400">180° Reflection:</span>
+            <span className="font-mono font-bold text-amber-600 dark:text-amber-300">
+              C({focusedMove.dest.x}, {focusedMove.dest.y}) = 2·({focusedMove.pivot.x}, {focusedMove.pivot.y}) - ({focusedMove.from.x}, {focusedMove.from.y})
             </span>
           </div>
         )}
 
-        <div className="pointer-events-auto flex items-center gap-2 glass-panel p-2 rounded-full shadow-2xl border border-white/10 backdrop-blur-xl">
+        <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-full p-1 flex items-center gap-1 shadow-xl">
           {/* Undo Button */}
           <button
             id="hud-dock-undo-btn"
             onClick={onUndo}
             disabled={!canUndo || Boolean(pegsRoom)}
             title="Undo Move (Ctrl+Z)"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800/80 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
+            className="w-8 h-8 rounded-full flex items-center justify-center transition-all bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer active:scale-95"
           >
-            <Undo2 size={16} />
-            <span>Undo</span>
+            <Undo2 size={15} />
           </button>
 
-          {/* Restart Level Button */}
+          {/* Restart Level */}
           <button
             id="hud-dock-restart-btn"
             onClick={onRestart}
             title="Restart Level (R)"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-700 transition-all cursor-pointer shadow-sm"
+            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-500 flex items-center justify-center transition-all cursor-pointer active:scale-95"
           >
-            <RotateCcw size={16} />
-            <span>Restart</span>
+            <RotateCcw size={15} />
           </button>
 
-          <div className="h-5 w-px bg-slate-700/60 mx-1" />
-
-          {/* Reset Camera Button */}
+          {/* Reset Camera View */}
           <button
-            id="hud-dock-reset-camera-btn"
+            id="hud-dock-camera-btn"
             onClick={onResetCamera}
-            title="Reset Camera View"
-            className="p-2.5 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+            title="Recenter Camera (C)"
+            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-500 flex items-center justify-center transition-all cursor-pointer active:scale-95"
           >
-            <Compass size={18} />
+            <Camera size={15} />
           </button>
 
-          {/* Mute / Unmute Audio Button */}
+          {/* Toggle Audio */}
           <button
-            id="hud-dock-toggle-sound-btn"
+            id="hud-dock-mute-btn"
             onClick={onToggleMute}
             title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-            className={`p-2.5 rounded-full transition-all cursor-pointer ${
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               isMuted
-                ? 'text-rose-400 hover:bg-rose-500/10'
-                : 'text-slate-300 hover:text-emerald-400 hover:bg-slate-800'
+                ? 'bg-rose-500/15 text-rose-500'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-500'
             }`}
           >
-            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
+
+          {/* Online Quick Emoji Reactions */}
+          {pegsRoom && (
+            <div className="relative">
+              <button
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="w-8 h-8 rounded-full bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/25 flex items-center justify-center transition-all cursor-pointer active:scale-95"
+                title="Send Quick Reaction"
+              >
+                <Smile size={15} />
+              </button>
+
+              <AnimatePresence>
+                {showEmojiPicker && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: -45 }}
+                    exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                    className="absolute bottom-0 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-2xl z-30"
+                  >
+                    {['🔥', '💡', '👏', '🧠', '⚡'].map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleSendReaction(emoji)}
+                        className="text-base p-1 hover:scale-125 active:scale-90 transition-transform cursor-pointer"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           {pegsRoom && onExitRoom && (
             <button
               onClick={onExitRoom}
-              className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 flex items-center justify-center transition-all cursor-pointer active:scale-95 ml-1"
-              title="Leave Multiplayer Room"
+              className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/30 flex items-center justify-center transition-all cursor-pointer active:scale-95 ml-0.5"
+              title="Leave Room"
             >
               <LogOut size={14} />
             </button>

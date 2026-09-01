@@ -190,8 +190,9 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
     const validation = validateCrossing(
       movingTravelers,
       torchBank,
-      currentLevel.bridgeCapacity,
-      sourceBankTravelers
+      leftBank,
+      rightBank,
+      currentLevel.bridgeCapacity
     );
 
     if (!validation.valid) {
@@ -382,7 +383,7 @@ export const BridgeGame: React.FC<BridgeGameProps> = ({
   }, []);
 
   return (
-    <div className="relative w-screen h-screen bg-[#07090e] overflow-hidden select-none font-sans text-slate-100">
+    <div className="fixed inset-0 w-screen h-screen bg-[#07090e] overflow-hidden select-none font-sans text-slate-100 touch-none">
       {/* 3D WebGL Three.js Canvas */}
       <BridgeCanvas3D
         leftBank={leftBank}

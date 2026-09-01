@@ -12,24 +12,48 @@ export function getCrossingDuration(travelers: Traveler[]): number {
  * Validates if the selected group can cross right now
  */
 export function validateCrossing(
-  selectedIds: string[],
+  selected: (Traveler | string)[],
   torchBank: BridgeBank,
-  leftBankIds: string[],
-  rightBankIds: string[],
-  capacity: number = 2
+  leftBankOrCapacity: (Traveler | string)[] | number = 2,
+  rightBankOrSource?: (Traveler | string)[],
+  capacityParam: number = 2
 ): { valid: boolean; reason?: string } {
+  const getIds = (items: (Traveler | string)[]): string[] => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item) => (typeof item === 'string' ? item : item?.id)).filter(Boolean);
+  };
+
+  const selectedIds = getIds(selected);
   if (selectedIds.length === 0) {
     return { valid: false, reason: 'Please select at least 1 traveler to cross.' };
   }
+
+  let capacity = capacityParam;
+  let currentBankIds: string[] = [];
+
+  if (typeof leftBankOrCapacity === 'number') {
+    capacity = leftBankOrCapacity;
+    if (rightBankOrSource && Array.isArray(rightBankOrSource)) {
+      currentBankIds = getIds(rightBankOrSource);
+    }
+  } else if (Array.isArray(leftBankOrCapacity)) {
+    const leftBankIds = getIds(leftBankOrCapacity);
+    const rightBankIds = rightBankOrSource && Array.isArray(rightBankOrSource) ? getIds(rightBankOrSource) : [];
+    currentBankIds = torchBank === 'left' ? leftBankIds : rightBankIds;
+    if (typeof capacityParam === 'number') {
+      capacity = capacityParam;
+    }
+  }
+
   if (selectedIds.length > capacity) {
     return { valid: false, reason: `The bridge can only hold up to ${capacity} people at once!` };
   }
 
-  const currentBankIds = torchBank === 'left' ? leftBankIds : rightBankIds;
-  const allOnTorchBank = selectedIds.every((id) => currentBankIds.includes(id));
-
-  if (!allOnTorchBank) {
-    return { valid: false, reason: 'Selected travelers must be on the same bank where the torch is located.' };
+  if (currentBankIds.length > 0) {
+    const allOnTorchBank = selectedIds.every((id) => currentBankIds.includes(id));
+    if (!allOnTorchBank) {
+      return { valid: false, reason: 'Selected travelers must be on the same bank where the torch is located.' };
+    }
   }
 
   return { valid: true };
